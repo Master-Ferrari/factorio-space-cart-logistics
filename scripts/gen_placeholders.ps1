@@ -60,7 +60,7 @@ $gri.Dispose()
 $railIcon.Save((Join-Path $gfx 'rail-icon.png'), [System.Drawing.Imaging.ImageFormat]::Png)
 $railIcon.Dispose()
 
-# --- Каретка: лист 16 кадров (1024x64), стрелка по часовой от севера ---
+# --- Каретка: лист 32 кадра (2048x64), стрелка по часовой от севера ---
 function Draw-Cart([System.Drawing.Graphics]$g, [single]$angleDeg) {
     $state = $g.Save()
     $g.TranslateTransform(32, 32)
@@ -80,16 +80,17 @@ function Draw-Cart([System.Drawing.Graphics]$g, [single]$angleDeg) {
     $g.Restore($state)
 }
 
-$sheet = New-Object System.Drawing.Bitmap 1024, 64
+$frames = 32
+$sheet = New-Object System.Drawing.Bitmap ($frames * 64), 64
 $gs = [System.Drawing.Graphics]::FromImage($sheet)
 $gs.SmoothingMode = 'AntiAlias'
 $gs.Clear([System.Drawing.Color]::Transparent)
-for ($i = 0; $i -lt 16; $i++) {
+for ($i = 0; $i -lt $frames; $i++) {
     $frame = New-Object System.Drawing.Bitmap 64, 64
     $gf = [System.Drawing.Graphics]::FromImage($frame)
     $gf.SmoothingMode = 'AntiAlias'
     $gf.Clear([System.Drawing.Color]::Transparent)
-    Draw-Cart $gf ([single]($i * 22.5))
+    Draw-Cart $gf ([single]($i * (360.0 / $frames)))
     $gf.Dispose()
     $gs.DrawImage($frame, ($i * 64), 0)
     $frame.Dispose()

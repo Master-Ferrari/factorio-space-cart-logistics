@@ -59,10 +59,13 @@ function G.cellkey(c)
   return math.floor(c.x * 32 + 0.5) .. "," .. math.floor(c.y * 32 + 0.5)
 end
 
--- facing 1..16 из вектора движения (1 = север/вверх, по часовой)
+-- число кадров поворота каретки (graphics_variation = facing 1..FACINGS)
+G.FACINGS = 32
+
+-- facing 1..FACINGS из вектора движения (1 = север/вверх, по часовой)
 function G.facing_from(dx, dy)
   local angle = math.atan2(dx, -dy)
-  local idx = math.floor(angle / (2 * math.pi) * 16 + 0.5) % 16
+  local idx = math.floor(angle / (2 * math.pi) * G.FACINGS + 0.5) % G.FACINGS
   return idx + 1
 end
 

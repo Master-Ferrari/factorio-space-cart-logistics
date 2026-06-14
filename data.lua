@@ -33,7 +33,7 @@ local rail = {
   },
 }
 
--- Каретка: 16 кадров в pictures (variation). В runtime cart.graphics_variation = facing (1..16).
+-- Каретка: 32 кадра в pictures (variation). В runtime cart.graphics_variation = facing (1..32).
 -- НЕ задавать speed/direction — позиционируем только teleport-ом.
 local cart = {
   type = "simple-entity-with-owner",
@@ -55,8 +55,8 @@ local cart = {
       filename = GFX .. "cart.png",
       width = 64,
       height = 64,
-      line_length = 16,
-      variation_count = 16,
+      line_length = 32,
+      variation_count = 32,
       scale = 0.5,
     },
   },
