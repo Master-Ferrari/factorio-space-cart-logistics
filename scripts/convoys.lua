@@ -159,6 +159,39 @@ local function build_occ()
   return occ
 end
 
+-- ── арбитраж перекрёстков (M5) ─────────────────────────────────────
+-- Кардинальная сторона курса из facing (1..FACINGS): 1=N, далее по часовой.
+local SIDE4 = { "N", "E", "S", "W" }
+local function heading_side(facing)
+  local idx = math.floor((facing - 1) / (G.FACINGS / 4) + 0.5) % 4
+  return SIDE4[idx + 1]
+end
+
+-- Победитель за спорную клетку среди контендеров grp = {{id, side}, ...}.
+-- ПДД «уступи правому» + абсолютный тай-брейк N>E>S>W (далее меньший id).
+local PRIO = { N = 4, E = 3, S = 2, W = 1 }
+local function pdd_winner(grp)
+  -- D на правом борту C: D приближается со стороны CW[course_C], т.е. OPP[side_D]==CW[side_C]
+  local eligible = {}
+  for _, c in ipairs(grp) do
+    local has_right = false
+    for _, d in ipairs(grp) do
+      if d ~= c and G.OPP[d.side] == G.CW[c.side] then has_right = true; break end
+    end
+    if not has_right then eligible[#eligible + 1] = c end
+  end
+  local pool = (#eligible > 0) and eligible or grp   -- все уступают (симметрия) → по приоритету
+  local best = pool[1]
+  for i = 2, #pool do
+    local c = pool[i]
+    if PRIO[c.side] > PRIO[best.side]
+      or (PRIO[c.side] == PRIO[best.side] and c.id < best.id) then
+      best = c
+    end
+  end
+  return best.id
+end
+
 function C.on_tick()
   local convoys = storage.convoys
   if not next(convoys) then return end
@@ -168,14 +201,38 @@ function C.on_tick()
   local ids = sorted_convoy_ids()
   local occ = build_occ()
 
+  -- Пре-пасс: желаемая клетка головы каждого состава + разрешение конфликтов.
+  -- Две и более голов на одну клетку в тик → едет один (ПДД), прочие уступают.
+  local desired = {}   -- id -> { cell, ncur }
+  local groups = {}    -- cellkey -> { {id, side}, ... }
+  for _, id in ipairs(ids) do
+    local head = storage.carts[convoys[id].carts[1]]
+    local cell, ncur = next_head(head.cursor)
+    if cell then
+      desired[id] = { cell = cell, ncur = ncur }
+      local k = G.cellkey(cell)
+      local grp = groups[k]
+      if not grp then grp = {}; groups[k] = grp end
+      grp[#grp + 1] = { id = id, side = heading_side(cell.facing) }
+    end
+  end
+  local yield = {}
+  for _, grp in pairs(groups) do
+    if #grp > 1 then
+      local win = pdd_winner(grp)
+      for _, e in ipairs(grp) do
+        if e.id ~= win then yield[e.id] = true end
+      end
+    end
+  end
+
   for _, id in ipairs(ids) do
     local cv = convoys[id]
-    if cv then
+    if cv and desired[id] and not yield[id] then
       local headun = cv.carts[1]
-      local head = storage.carts[headun]
-      local cell, ncur = next_head(head.cursor)
-      local go = cell ~= nil
-      if go then
+      local cell, ncur = desired[id].cell, desired[id].ncur
+      local go = true
+      do
         local owners = occ[G.cellkey(cell)]
         if owners then
           local gtk = G.cellkey(global_tail_cell(cv))
