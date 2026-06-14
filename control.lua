@@ -7,6 +7,7 @@
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local C = require("scripts.convoys")
+local Circuit = require("scripts.circuit")
 
 local RAIL, CART = G.RAIL, G.CART
 
@@ -47,9 +48,13 @@ local function rebuild_world()
   storage.carts = {}
   storage.next_convoy_id = 1
   for _, surface in pairs(game.surfaces) do
+    -- арт-сущности пересоздаём заново → снести существующие
+    for _, e in pairs(surface.find_entities_filtered({ name = G.RAIL_ART })) do
+      e.destroy()
+    end
     for _, e in pairs(surface.find_entities_filtered({ name = RAIL })) do
       local tx, ty = G.tile_of(e.position)
-      storage.rails[G.key_of_tile(tx, ty)] = { x = tx, y = ty, entity = e, conns = {}, mask = 0 }
+      storage.rails[G.key_of_tile(tx, ty)] = { x = tx, y = ty, entity = e, art = nil, conns = {}, mask = 0 }
     end
   end
   for key in pairs(storage.rails) do R.rail_update(key) end
@@ -126,4 +131,27 @@ commands.add_command("scl-stats", "Print rail/cart/convoy counts", function(cmd)
   for _ in pairs(storage.carts) do nc = nc + 1 end
   for _ in pairs(storage.convoys) do nv = nv + 1 end
   player.print("[SCL] rails=" .. nr .. " carts=" .. nc .. " convoys=" .. nv)
+end)
+
+-- ── спайк M6: проверка чтения цепи ─────────────────────────────────
+-- Примари-рельс — constant-combinator, провода цепляются прямо к нему.
+-- /scl-circuit-read — распечатать сигналы, которые видит рельс под игроком.
+commands.add_command("scl-circuit-read", "Print circuit signals seen by the rail under you", function(cmd)
+  local player = game.get_player(cmd.player_index)
+  if not player then return end
+  local tx, ty = G.tile_of(player.position)
+  local key = G.key_of_tile(tx, ty)
+  local node = storage.rails[key]
+  if not node then
+    player.print("[SCL] No rail under you (tile " .. key .. ").")
+    return
+  end
+  local merged = Circuit.read(node)
+  if not merged then
+    player.print("[SCL] Rail entity invalid at " .. key)
+    return
+  end
+  local parts = {}
+  for k, v in pairs(merged) do parts[#parts + 1] = k .. "=" .. v end
+  player.print("[SCL] signals @ " .. key .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "(none)"))
 end)

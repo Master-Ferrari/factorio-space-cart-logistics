@@ -5,7 +5,8 @@
 local G = {}
 
 -- имена прототипов
-G.RAIL = "gofarovich-scl-rail"
+G.RAIL = "gofarovich-scl-rail"          -- примари: constant-combinator (выбор/провода/GUI)
+G.RAIL_ART = "gofarovich-scl-rail-art"  -- арт: simple-entity-with-owner (graphics_variation)
 G.CART = "gofarovich-scl-cart"
 
 -- клеточные длины

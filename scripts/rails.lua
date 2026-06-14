@@ -1,12 +1,26 @@
 -- rails.lua — граф рельс: соединения тайла, битмаска, graphics_variation, маршрут.
--- storage.rails[key] = { x, y, entity, conns = {["N-S"]=true,...}, mask }
+-- storage.rails[key] = { x, y, entity(=примари комбинатор), art(=арт-сущность),
+--                        conns = {["N-S"]=true,...}, mask }
 
 local G = require("scripts.geometry")
 
 local R = {}
 
+-- Создать/вернуть арт-сущность тайла (несёт graphics_variation).
+local function ensure_art(node)
+  if node.art and node.art.valid then return node.art end
+  if not (node.entity and node.entity.valid) then return nil end
+  node.art = node.entity.surface.create_entity({
+    name = G.RAIL_ART,
+    position = { x = node.x + 0.5, y = node.y + 0.5 },
+    force = node.entity.force,
+  })
+  return node.art
+end
+R.ensure_art = ensure_art
+
 -- Пересчёт соединений/маски тайла из присутствующих соседей и применение
--- к graphics_variation. Соединяем все пары присутствующих сторон.
+-- к graphics_variation арт-сущности. Соединяем все пары присутствующих сторон.
 -- TODO(M6): переопределение conns сигнальными условиями вместо авто-вывода.
 function R.rail_update(key)
   local node = storage.rails[key]
@@ -28,16 +42,15 @@ function R.rail_update(key)
   end
   node.conns = conns
   node.mask = mask
-  if node.entity and node.entity.valid then
-    node.entity.graphics_variation = mask + 1
-  end
+  local art = ensure_art(node)
+  if art then art.graphics_variation = mask + 1 end
 end
 
 function R.rail_add(entity)
   local tx, ty = G.tile_of(entity.position)
   local key = G.key_of_tile(tx, ty)
   if storage.rails[key] then return end
-  storage.rails[key] = { x = tx, y = ty, entity = entity, conns = {}, mask = 0 }
+  storage.rails[key] = { x = tx, y = ty, entity = entity, art = nil, conns = {}, mask = 0 }
   R.rail_update(key)
   for _, side in ipairs(G.SIDES) do
     R.rail_update(G.neighbor_tile(key, side))
@@ -47,7 +60,9 @@ end
 function R.rail_remove(entity)
   local tx, ty = G.tile_of(entity.position)
   local key = G.key_of_tile(tx, ty)
-  if not storage.rails[key] then return end
+  local node = storage.rails[key]
+  if not node then return end
+  if node.art and node.art.valid then node.art.destroy() end
   storage.rails[key] = nil
   for _, side in ipairs(G.SIDES) do
     R.rail_update(G.neighbor_tile(key, side))
