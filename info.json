@@ -1,0 +1,11 @@
+{
+  "name": "space-cart-logistics",
+  "version": "0.2.0",
+  "title": "Space Cart Logistics",
+  "author": "gofarovich",
+  "factorio_version": "2.0",
+  "description": "Tile-sized rails and externally-routed carts (OHT/AMHS-style), simulated entirely in Lua. Milestone 2: rail connection bitmask (64-variation art) + cell-based motion (32-cell cart window, straight/turn paths, right-hand routing) with cell occupancy for following/waiting.",
+  "dependencies": [
+    "base >= 2.0.0"
+  ]
+}
