@@ -143,6 +143,48 @@ local function do_joins()
   end
 end
 
+-- ПАСС РАСКОЛА: режем состав там, где соседние каретки больше НЕ идут бампер-в-бампер
+-- по одному следу — т.е. следующая клетка головы задней каретки не совпала с текущей
+-- хвостовой клеткой передней (сменился маршрут на тайле между их входами, или зазор).
+-- Без этого тело движется без проверки оккупанси и наезжает на переднюю («фронт в
+-- фронт»). Предикат — точная инверсия do_joins (next_head задней == хвост передней),
+-- поэтому раскол и слияние не осциллируют. Кольцо (замкнутая цепочка) не трогаем:
+-- проверяем только последовательные пары в списке, без замыкания.
+local function do_splits()
+  for _, id in ipairs(sorted_convoy_ids()) do
+    local cv = storage.convoys[id]
+    if cv and #cv.carts > 1 then
+      local groups = {}
+      local cur = { cv.carts[1] }
+      for k = 2, #cv.carts do
+        local front = storage.carts[cv.carts[k - 1]]
+        local back = storage.carts[cv.carts[k]]
+        local nb = next_head(back.cursor)
+        local ftail = front.cells[front.tail]
+        local linked = nb and ftail
+          and G.cellkey(nb) == G.cellkey(ftail)
+          and facing_close(nb.facing, ftail.facing)
+        if linked then
+          cur[#cur + 1] = cv.carts[k]
+        else
+          groups[#groups + 1] = cur
+          cur = { cv.carts[k] }
+        end
+      end
+      groups[#groups + 1] = cur
+      if #groups > 1 then
+        cv.carts = groups[1]
+        for gi = 2, #groups do
+          local nid = storage.next_convoy_id
+          storage.next_convoy_id = nid + 1
+          storage.convoys[nid] = { id = nid, carts = groups[gi] }
+          for _, un in ipairs(groups[gi]) do storage.carts[un].convoy = nid end
+        end
+      end
+    end
+  end
+end
+
 -- оккупанси по клеткам: occ[cellkey][un] = index
 local function build_occ()
   local occ = {}
@@ -197,6 +239,7 @@ function C.on_tick()
   if not next(convoys) then return end
 
   do_joins()
+  do_splits()   -- режем разошедшиеся составы ДО движения → у головы каждого свой гейт оккупанси
 
   local ids = sorted_convoy_ids()
   local occ = build_occ()

@@ -8,6 +8,7 @@ local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local C = require("scripts.convoys")
 local Circuit = require("scripts.circuit")
+local GUI = require("scripts.gui")
 
 local RAIL, CART = G.RAIL, G.CART
 
@@ -38,11 +39,18 @@ local function ensure_storage()
   storage.convoys = storage.convoys or {}
   storage.carts = storage.carts or {}
   storage.next_convoy_id = storage.next_convoy_id or 1
+  storage.gui_open = storage.gui_open or {}  -- player.index -> rail tile key
 end
 
 -- Полная пересборка состояния из сущностей в мире.
 -- Нужна при апдейте мода (старый формат storage может не иметь conns/mask).
 local function rebuild_world()
+  -- сохраняем ручные настройки тайлов (mode/manual_mask/circuit) по ключу — иначе
+  -- апдейт мода (этот rebuild) их сбрасывал бы.
+  local saved = {}
+  for key, node in pairs(storage.rails or {}) do
+    saved[key] = { mode = node.mode, manual_mask = node.manual_mask, circuit = node.circuit }
+  end
   storage.rails = {}
   storage.convoys = {}
   storage.carts = {}
@@ -54,7 +62,13 @@ local function rebuild_world()
     end
     for _, e in pairs(surface.find_entities_filtered({ name = RAIL })) do
       local tx, ty = G.tile_of(e.position)
-      storage.rails[G.key_of_tile(tx, ty)] = { x = tx, y = ty, entity = e, art = nil, conns = {}, mask = 0 }
+      local key = G.key_of_tile(tx, ty)
+      local s = saved[key]
+      storage.rails[key] = {
+        x = tx, y = ty, entity = e, art = nil, conns = {}, mask = 0,
+        mode = (s and s.mode) or "auto", manual_mask = s and s.manual_mask,
+        circuit = (s and s.circuit) or false, eff_mask = 0,
+      }
     end
   end
   for key in pairs(storage.rails) do R.rail_update(key) end
@@ -83,6 +97,60 @@ script.on_event(defines.events.on_entity_died, on_removed, build_filter)
 script.on_event(defines.events.script_raised_destroy, on_removed, build_filter)
 
 script.on_event(defines.events.on_tick, C.on_tick)
+
+-- ── GUI тайла (M6, 6a: каркас) ─────────────────────────────────────
+-- Клик по примари-рельсу открывает наше окно вместо нативного combinator-GUI.
+script.on_event(defines.events.on_gui_opened, function(event)
+  if event.gui_type ~= defines.gui_type.entity then return end
+  local e = event.entity
+  if not (e and e.valid and e.name == RAIL) then return end
+  local player = game.get_player(event.player_index)
+  player.opened = nil  -- подавить нативный constant-combinator GUI
+  local tx, ty = G.tile_of(e.position)
+  local node = storage.rails[G.key_of_tile(tx, ty)]
+  if node then GUI.open(player, node) end
+end)
+
+-- ESC/E или клик мимо — Factorio шлёт on_gui_closed на наш фрейм.
+script.on_event(defines.events.on_gui_closed, function(event)
+  local el = event.element
+  if not (el and el.valid) or el.name ~= GUI.FRAME then return end
+  storage.gui_open[event.player_index] = nil
+  el.destroy()
+end)
+
+script.on_event(defines.events.on_gui_click, function(event)
+  if event.element.name == GUI.CLOSE then
+    GUI.close(game.get_player(event.player_index))
+  end
+end)
+
+-- Узел рельса, чьё окно открыто у игрока (или nil).
+local function open_node(player_index)
+  local key = storage.gui_open[player_index]
+  local node = key and storage.rails[key]
+  if node and node.entity and node.entity.valid then return node end
+end
+
+-- Чекбоксы окна (6b): manual (auto↔manual), circuit (бул, правая панель — 6c),
+-- и 6 галочек путей (правка ручной маски). Любая правка пересобирает окно.
+script.on_event(defines.events.on_gui_checked_state_changed, function(event)
+  local el = event.element
+  if not (el and el.valid) then return end
+  local node = open_node(event.player_index)
+  if not node then return end
+  local name = el.name
+  if name == GUI.MANUAL then
+    R.set_mode(node, el.state)
+  elseif name == GUI.CIRCUIT then
+    node.circuit = el.state
+  elseif name:sub(1, #GUI.CONN_CHECK) == GUI.CONN_CHECK then
+    R.set_conn(node, name:sub(#GUI.CONN_CHECK + 1), el.state)
+  else
+    return
+  end
+  GUI.open(game.get_player(event.player_index), node)
+end)
 
 -- ── тестовые команды ───────────────────────────────────────────────
 commands.add_command("scl-spawn-cart", "Spawn a test cart on the rail under the player", function(cmd)

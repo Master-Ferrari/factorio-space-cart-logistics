@@ -65,7 +65,7 @@ local cart = {
   max_health = 100,
   collision_mask = { layers = {} },
   collision_box = { { -0.3, -0.3 }, { 0.3, 0.3 } },
-  selection_box = { { -0.5, -0.5 }, { 0.5, 0.5 } },
+  selection_box = { { -0.35, -0.35 }, { 0.35, 0.35 } },
   minable = { mining_time = 0.1, result = "gofarovich-scl-cart" },
   random_variation_on_create = false,
   render_layer = "object",
@@ -103,4 +103,23 @@ local cart_item = {
   place_result = "gofarovich-scl-cart",
 }
 
+-- GUI-спрайты тайла: каждая из 64 ячеек листа rail.png — отдельный sprite-прототип,
+-- чтобы показать ОДИН тайл во вьюпорте GUI крупно. Камера в GUI клампит зум (~3x) и
+-- не даёт растянуть один тайл; именованный спрайт — даёт. Имя: gofarovich-scl-rail-tile-<mask>.
+-- Контракт бит→ячейка (см. readme): col = mask & 7, row = mask >> 3.
+local tile_sprites = {}
+for mask = 0, 63 do
+  tile_sprites[#tile_sprites + 1] = {
+    type = "sprite",
+    name = "gofarovich-scl-rail-tile-" .. mask,
+    filename = GFX .. "rail.png",
+    x = (mask % 8) * 64,
+    y = math.floor(mask / 8) * 64,
+    width = 64,
+    height = 64,
+    flags = { "gui-icon" },
+  }
+end
+
 data:extend({ rail, rail_art, cart, rail_item, cart_item })
+data:extend(tile_sprites)
