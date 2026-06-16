@@ -1,12 +1,13 @@
 -- gui.lua — интерфейс тайла рельса (M6).
 -- Под-этап 6a (этот файл): КАРКАС, read-only. Открывается кликом по примари-рельсу.
--- Левая панель «Cart rail»: титул + крестик; вьюпорт (спрайт ячейки тайла по node.mask
--- = текущие активные направления) + 3×3 галочки-компас поверх; снизу чекбоксы
--- manual / circuit network — пока БЕЗ логики (инертны).
+-- Левая панель «Cart rail»: титул + крестик; вьюпорт (стопка слоёв: база + цветные
+-- пути активных соединений по eff_mask) + 3×3 галочки-компас поверх; снизу чекбоксы
+-- manual / circuit network.
 -- Дальше: 6b — ручная маска и 3×3 галочки во вьюпорте; 6c — правая панель условий.
 -- Референс паттернов окна — соседний проект factorio_button (control.lua).
 
 local G = require("scripts.geometry")
+local R = require("scripts.rails")
 
 local GUI = {}
 
@@ -15,6 +16,12 @@ GUI.CLOSE      = "gofarovich-scl-close"
 GUI.MANUAL     = "gofarovich-scl-manual"
 GUI.CIRCUIT    = "gofarovich-scl-circuit"
 GUI.CONN_CHECK = "gofarovich-scl-conn-"  -- + ключ соединения, напр. gofarovich-scl-conn-N-S
+
+-- Слои вьюпорта (data.lua): база + цветной путь на соединение. Порядок наложения =
+-- порядок битов (визуально не важен — пути почти не перекрываются).
+local VP_BASE   = "gofarovich-scl-vp-base"
+local VP_PREFIX = "gofarovich-scl-vp-"
+local CONN_ORDER = { "N-S", "E-W", "N-E", "N-W", "S-E", "S-W" }
 
 -- 6 соединений → клетка в сетке 3×3 (компас-якоря). Повороты — по своим углам;
 -- прямые: N-S сверху-центр, E-W слева-центр. Приблизительно (ТЗ: «поправим позже»).
@@ -72,22 +79,32 @@ local function add_path_checks(overlay, node)
   end
 end
 
--- Вьюпорт: спрайт ячейки тайла (= node.mask) + 3×3 оверлей галочек. Один тайл крупно,
--- растянут на весь вьюпорт. Спрайт (gofarovich-scl-rail-tile-<mask>, см. data.lua) —
--- та же картинка, что рисует арт-сущность; камеру не используем, она клампит зум.
--- Оверлей кладём negative-margin'ом поверх спрайта (абсолютного позиционирования в
--- Factorio GUI нет — см. ТЗ; точное наложение на дуги поправим позже).
+-- Один слой вьюпорта (спрайт на весь вьюпорт). Каждый следующий элемент стопки
+-- тянется на то же место отрицательным top_margin → слои с альфой композитятся,
+-- позже добавленный — сверху. Абсолютного позиционирования в GUI нет (см. ТЗ).
+local function add_layer(stack, sprite)
+  local el = stack.add{ type = "sprite", sprite = sprite }
+  el.style.width = VIEW
+  el.style.height = VIEW
+  el.style.stretch_image_to_widget_size = true
+  if #stack.children > 1 then el.style.top_margin = -VIEW end
+  return el
+end
+
+-- Вьюпорт: база + цветные слои активных путей (по eff_mask) + 3×3 оверлей галочек.
+-- Картинку тайла собираем стопкой слоёв (не лист ячеек, не камера) — так пути
+-- цветные и любой mask собирается из 7 текстур.
 local function add_viewport(parent, node)
   local deep = parent.add{ type = "frame", style = "deep_frame_in_shallow_frame" }
   local stack = deep.add{ type = "flow", direction = "vertical" }
   stack.style.vertical_spacing = 0
-  local pic = stack.add{
-    type = "sprite",
-    sprite = "gofarovich-scl-rail-tile-" .. (node.mask or 0),
-  }
-  pic.style.width = VIEW
-  pic.style.height = VIEW
-  pic.style.stretch_image_to_widget_size = true
+  add_layer(stack, VP_BASE)
+  local eff = node.eff_mask or node.mask or 0
+  for _, conn in ipairs(CONN_ORDER) do
+    if bit32.band(eff, bit32.lshift(1, G.CONN_BIT[conn])) ~= 0 then
+      add_layer(stack, VP_PREFIX .. conn)
+    end
+  end
   -- Галочки путей — только в manual (в auto вьюпорт = read-only картинка, ТЗ).
   if node.mode == "manual" then
     local overlay = stack.add{ type = "flow", direction = "vertical" }
@@ -136,6 +153,63 @@ function GUI.open(player, node)
   if loc then frame.location = loc else frame.auto_center = true end
   storage.gui_open[player.index] = G.key_of_tile(node.x, node.y)
   player.opened = frame
+end
+
+-- ── роутинг событий GUI ─────────────────────────────────────────────
+-- Узел рельса, чьё окно открыто у игрока (или nil).
+local function open_node(player_index)
+  local key = storage.gui_open[player_index]
+  local node = key and storage.rails[key]
+  if node and node.entity and node.entity.valid then return node end
+end
+
+-- Регистрирует обработчики on_gui_* (зовётся из control.lua на каждом загрузе).
+function GUI.register_events()
+  -- Клик по примари-рельсу открывает наше окно вместо нативного combinator-GUI.
+  script.on_event(defines.events.on_gui_opened, function(event)
+    if event.gui_type ~= defines.gui_type.entity then return end
+    local e = event.entity
+    if not (e and e.valid and e.name == G.RAIL) then return end
+    local player = game.get_player(event.player_index)
+    player.opened = nil  -- подавить нативный constant-combinator GUI
+    local tx, ty = G.tile_of(e.position)
+    local node = storage.rails[G.key_of_tile(tx, ty)]
+    if node then GUI.open(player, node) end
+  end)
+
+  -- ESC/E или клик мимо — Factorio шлёт on_gui_closed на наш фрейм.
+  script.on_event(defines.events.on_gui_closed, function(event)
+    local el = event.element
+    if not (el and el.valid) or el.name ~= GUI.FRAME then return end
+    storage.gui_open[event.player_index] = nil
+    el.destroy()
+  end)
+
+  script.on_event(defines.events.on_gui_click, function(event)
+    if event.element.name == GUI.CLOSE then
+      GUI.close(game.get_player(event.player_index))
+    end
+  end)
+
+  -- Чекбоксы окна: manual (auto↔manual), circuit (бул, правая панель — 6c), и 6
+  -- галочек путей (правка ручной маски). Любая правка пересобирает окно.
+  script.on_event(defines.events.on_gui_checked_state_changed, function(event)
+    local el = event.element
+    if not (el and el.valid) then return end
+    local node = open_node(event.player_index)
+    if not node then return end
+    local name = el.name
+    if name == GUI.MANUAL then
+      R.set_mode(node, el.state)
+    elseif name == GUI.CIRCUIT then
+      node.circuit = el.state
+    elseif name:sub(1, #GUI.CONN_CHECK) == GUI.CONN_CHECK then
+      R.set_conn(node, name:sub(#GUI.CONN_CHECK + 1), el.state)
+    else
+      return
+    end
+    GUI.open(game.get_player(event.player_index), node)
+  end)
 end
 
 return GUI

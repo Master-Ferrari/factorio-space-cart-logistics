@@ -103,23 +103,28 @@ local cart_item = {
   place_result = "gofarovich-scl-cart",
 }
 
--- GUI-спрайты тайла: каждая из 64 ячеек листа rail.png — отдельный sprite-прототип,
--- чтобы показать ОДИН тайл во вьюпорте GUI крупно. Камера в GUI клампит зум (~3x) и
--- не даёт растянуть один тайл; именованный спрайт — даёт. Имя: gofarovich-scl-rail-tile-<mask>.
--- Контракт бит→ячейка (см. readme): col = mask & 7, row = mask >> 3.
-local tile_sprites = {}
-for mask = 0, 63 do
-  tile_sprites[#tile_sprites + 1] = {
+-- Слои вьюпорта GUI: окно собирает картинку тайла стопкой спрайтов с альфой —
+-- база + активные пути (по eff_mask), цвета путей из readme. Отдельные текстуры
+-- (graphics/viewport/, 256×256) рисует tools/gen_viewport.ps1. Имена:
+-- gofarovich-scl-vp-base и gofarovich-scl-vp-<conn> (N-S/E-W/N-E/N-W/S-E/S-W).
+-- В GUI спрайт растягивается на вьюпорт; цветные слои кладутся поверх базы.
+local VP = GFX .. "viewport/"
+local vp_files = {
+  ["base"] = "base.png",
+  ["N-S"] = "ns.png", ["E-W"] = "ew.png",
+  ["N-E"] = "ne.png", ["N-W"] = "nw.png",
+  ["S-E"] = "se.png", ["S-W"] = "sw.png",
+}
+local vp_sprites = {}
+for key, file in pairs(vp_files) do
+  vp_sprites[#vp_sprites + 1] = {
     type = "sprite",
-    name = "gofarovich-scl-rail-tile-" .. mask,
-    filename = GFX .. "rail.png",
-    x = (mask % 8) * 64,
-    y = math.floor(mask / 8) * 64,
-    width = 64,
-    height = 64,
+    name = "gofarovich-scl-vp-" .. key,
+    filename = VP .. file,
+    size = 256,
     flags = { "gui-icon" },
   }
 end
 
 data:extend({ rail, rail_art, cart, rail_item, cart_item })
-data:extend(tile_sprites)
+data:extend(vp_sprites)

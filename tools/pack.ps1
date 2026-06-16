@@ -1,6 +1,7 @@
 # Упаковка мода в zip и копирование в папку mods Factorio.
-# Запуск: powershell -ExecutionPolicy Bypass -File scripts/pack.ps1
+# Запуск: powershell -ExecutionPolicy Bypass -File tools/pack.ps1
 # Структура zip:  space-cart-logistics_<version>.zip / space-cart-logistics / {info.json,...}
+# scripts/ — только рантайм .lua (едут целиком); build-tooling живёт в tools/ и в мод не входит.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -18,8 +19,8 @@ $stageRoot = Join-Path $env:TEMP ("scl_pack_" + [guid]::NewGuid().ToString('N'))
 $stageMod  = Join-Path $stageRoot $modName
 New-Item -ItemType Directory -Path $stageMod -Force | Out-Null
 
-# Что входит в мод.
-$include = @('info.json', 'data.lua', 'control.lua', 'graphics', 'locale')
+# Что входит в мод. scripts/ теперь содержит только рантайм .lua → копируем целиком.
+$include = @('info.json', 'data.lua', 'control.lua', 'scripts', 'graphics', 'locale')
 foreach ($item in $include) {
   $src = Join-Path $root $item
   if (Test-Path $src) {
@@ -27,13 +28,6 @@ foreach ($item in $include) {
   } else {
     Write-Warning "skip missing: $item"
   }
-}
-
-# Рантайм-модули из scripts/*.lua (build-скрипты .ps1 в мод не входят).
-$stageScripts = Join-Path $stageMod 'scripts'
-New-Item -ItemType Directory -Path $stageScripts -Force | Out-Null
-Get-ChildItem (Join-Path $root 'scripts') -Filter '*.lua' | ForEach-Object {
-  Copy-Item $_.FullName -Destination $stageScripts -Force
 }
 
 $zipPath = Join-Path $modsDir ("$modName" + "_" + "$version.zip")

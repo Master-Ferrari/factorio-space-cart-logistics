@@ -1,5 +1,5 @@
 # Генерация плейсхолдер-графики для мода space-cart-logistics.
-# Запуск: powershell -ExecutionPolicy Bypass -File scripts/gen_placeholders.ps1
+# Запуск: powershell -ExecutionPolicy Bypass -File tools/gen_placeholders.ps1
 #
 # Контракт «бит → ячейка» (см. readme):
 #   Биты: 0=N-S, 1=E-W, 2=N-E, 3=N-W, 4=S-E, 5=S-W.  mask = OR активных (0..63).
