@@ -19,8 +19,9 @@ local C = {}
 
 -- ── вспомогательные ────────────────────────────────────────────────
 local function facing_close(a, b)
-  local d = math.abs(a - b) % 16
-  if d > 8 then d = 16 - d end
+  local n = G.FACINGS
+  local d = math.abs(a - b) % n
+  if d > n / 2 then d = n - d end
   return d <= 1
 end
 
@@ -323,6 +324,23 @@ function C.on_tick()
   end
 end
 
+-- Есть ли хоть одна каретка, чьё тело занимает тайл (tx,ty)? Для запрета
+-- удаления рельса под кареткой (control.lua). Майнинг редок → скан по месту.
+function C.tile_has_carts(tx, ty)
+  for _, cart in pairs(storage.carts) do
+    local cells, tail, head = cart.cells, cart.tail, cart.head
+    if cells and tail and head then
+      for i = tail, head do
+        local c = cells[i]
+        if c and math.floor(c.x) == tx and math.floor(c.y) == ty then
+          return true
+        end
+      end
+    end
+  end
+  return false
+end
+
 -- ── регистрация каретки ────────────────────────────────────────────
 -- Выбрать стартовое (entry,exit): первое включённое соединение в порядке сторон.
 local function pick_start(node)
@@ -388,6 +406,107 @@ function C.cart_unregister(entity)
     end
   end
   storage.carts[un] = nil
+end
+
+-- ── разворот одной каретки (R) ─────────────────────────────────────
+-- Противоположный facing (1..FACINGS): поворот на полкруга.
+local function opp_facing(f)
+  local half = math.floor(G.FACINGS / 2)
+  return ((f - 1 + half) % G.FACINGS) + 1
+end
+
+-- Вынести каретку в её собственный состав-из-одного (если она в большем составе).
+-- Передняя/задняя части бывшего состава продолжают ехать как раньше.
+local function isolate_cart(un)
+  local cart = storage.carts[un]
+  if not (cart and cart.convoy) then return end
+  local cv = storage.convoys[cart.convoy]
+  if not cv or #cv.carts <= 1 then return end
+  local idx
+  for k, oun in ipairs(cv.carts) do if oun == un then idx = k; break end end
+  if not idx then return end
+  local front, back = {}, {}
+  for k, oun in ipairs(cv.carts) do
+    if k < idx then front[#front + 1] = oun
+    elseif k > idx then back[#back + 1] = oun end
+  end
+  local mine = storage.next_convoy_id
+  storage.next_convoy_id = mine + 1
+  storage.convoys[mine] = { id = mine, carts = { un } }
+  cart.convoy = mine
+  if #front > 0 then
+    cv.carts = front                       -- front остаётся в исходном составе
+    if #back > 0 then
+      local nid = storage.next_convoy_id
+      storage.next_convoy_id = nid + 1
+      storage.convoys[nid] = { id = nid, carts = back }
+      for _, oun in ipairs(back) do storage.carts[oun].convoy = nid end
+    end
+  elseif #back > 0 then
+    cv.carts = back                        -- front пуст → cv берёт back
+  else
+    storage.convoys[cv.id] = nil
+  end
+end
+
+-- Курсор для клетки headcell, едущей в направлении headcell.facing: ищем
+-- направленный сегмент (entry→exit) активного рельса, проходящий через эту клетку
+-- с тем же facing. Скан тайлов-кандидатов вокруг клетки (клетка может лежать на
+-- ребре между тайлами — отсюда оффсеты ±0.02). facing однозначно отсеивает
+-- встречный/перпендикулярный сегмент в той же точке (перекрёсток).
+local function cursor_for_cell(headcell)
+  local cands = {}
+  for _, ox in ipairs({ -0.02, 0.02 }) do
+    for _, oy in ipairs({ -0.02, 0.02 }) do
+      local tx, ty = math.floor(headcell.x + ox), math.floor(headcell.y + oy)
+      cands[tx .. "," .. ty] = { tx, ty }
+    end
+  end
+  for _, t in pairs(cands) do
+    local node = storage.rails[G.key_of_tile(t[1], t[2])]
+    if node then
+      for _, entry in ipairs(G.SIDES) do
+        for _, exit in ipairs(G.SIDES) do
+          if entry ~= exit and node.conns[G.CONN[entry][exit]] then
+            local seg = G.get_segment(entry, exit)
+            for i = 1, #seg do
+              local rel = seg[i]
+              if math.abs(t[1] + rel.x - headcell.x) < 0.02
+                and math.abs(t[2] + rel.y - headcell.y) < 0.02
+                and facing_close(rel.facing, headcell.facing) then
+                return { tile = G.key_of_tile(t[1], t[2]), entry = entry, exit = exit, seg = seg, i = i }
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  return nil
+end
+
+-- Развернуть ОДНУ каретку: отколоть из состава и пустить обратно по своему следу.
+-- Тело переворачиваем (новый head = старый tail, facing у всех обратный), курсор
+-- восстанавливаем у нового head. Если путь назад в тупик — не разворачиваем.
+function C.reverse_cart(un)
+  local cart = storage.carts[un]
+  if not (cart and cart.cells and cart.convoy and cart.head and cart.tail) then return false end
+  local L = cart.head - cart.tail + 1
+  if L < 2 then return false end
+  local newcells = {}
+  for k = 1, L do
+    local old = cart.cells[cart.head - (k - 1)]
+    newcells[k] = { x = old.x, y = old.y, facing = opp_facing(old.facing) }
+  end
+  local cur = cursor_for_cell(newcells[L])
+  if not cur then return false end
+  isolate_cart(un)
+  cart.cells = newcells
+  cart.tail = 1
+  cart.head = L
+  cart.cursor = cur
+  update_cart(cart)
+  return true
 end
 
 return C

@@ -88,6 +88,33 @@ function R.set_conn(node, conn, on)
   R.rail_update(key_of(node))
 end
 
+-- Пересоздать примари-сущность тайла на том же месте, перенеся провода.
+-- В Factorio нет события «отменить добычу», поэтому запрет удаления рельса
+-- (control.lua, когда на тайле каретка) реализуется так: предмет возвращаем,
+-- а сущность создаём заново и репоинтим node.entity. Арт не трогаем — он
+-- невыбираемый, добычей игрока не сносится.
+function R.recreate_entity(node)
+  local old = node.entity
+  if not (old and old.valid) then return nil end
+  local surface, position, force = old.surface, old.position, old.force
+  -- снимок проводных соединений старой сущности
+  local saved = {}
+  for id, connector in pairs(old.get_wire_connectors(false)) do
+    for _, conn in pairs(connector.connections) do
+      saved[#saved + 1] = { id = id, target = conn.target }
+    end
+  end
+  local new = surface.create_entity({ name = G.RAIL, position = position, force = force })
+  if not new then return nil end
+  for _, s in ipairs(saved) do
+    if s.target and s.target.valid then
+      new.get_wire_connector(s.id, true).connect_to(s.target)
+    end
+  end
+  node.entity = new
+  return new
+end
+
 function R.rail_add(entity)
   local tx, ty = G.tile_of(entity.position)
   local key = G.key_of_tile(tx, ty)

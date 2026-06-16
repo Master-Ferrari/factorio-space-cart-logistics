@@ -27,13 +27,49 @@ local function on_built(event)
   end
 end
 
+-- Всплывающее предупреждение игроку (если событие от игрока).
+local function warn_occupied(player_index)
+  if not player_index then return end
+  local player = game.get_player(player_index)
+  if player then
+    player.create_local_flying_text({
+      text = { "gofarovich-scl-message.rail-occupied" },
+      create_at_cursor = true,
+    })
+  end
+end
+
 local function on_removed(event)
   local e = event.entity
   if not (e and e.valid) then return end
   if e.name == RAIL then
+    -- Запрет удаления рельса под кареткой. event.buffer есть только у добычи
+    -- (игрок/робот) — у смерти/script_raised_destroy его нет, их не блокируем.
+    if event.buffer then
+      local tx, ty = G.tile_of(e.position)
+      if C.tile_has_carts(tx, ty) then
+        event.buffer.clear()  -- вернуть выкопанный предмет (его не отдаём)
+        local node = storage.rails[G.key_of_tile(tx, ty)]
+        if node then R.recreate_entity(node) end
+        warn_occupied(event.player_index)
+        return
+      end
+    end
     R.rail_remove(e)
   elseif e.name == CART then
     C.cart_unregister(e)
+  end
+end
+
+-- Деконструкция (планировщик → роботы): на занятом рельсе сразу отменяем заказ,
+-- иначе робот бесконечно прилетал бы выкапывать, а on_removed его восстанавливал.
+local function on_marked(event)
+  local e = event.entity
+  if not (e and e.valid) or e.name ~= RAIL then return end
+  local tx, ty = G.tile_of(e.position)
+  if C.tile_has_carts(tx, ty) then
+    e.cancel_deconstruction(e.force)
+    warn_occupied(event.player_index)
   end
 end
 
@@ -100,7 +136,21 @@ script.on_event(defines.events.on_robot_mined_entity, on_removed, build_filter)
 script.on_event(defines.events.on_entity_died, on_removed, build_filter)
 script.on_event(defines.events.script_raised_destroy, on_removed, build_filter)
 
+-- Запрет деконструкции рельса под кареткой (фильтр — только наш рельс).
+script.on_event(defines.events.on_marked_for_deconstruction, on_marked,
+  { { filter = "name", name = RAIL } })
+
 script.on_event(defines.events.on_tick, C.on_tick)
+
+-- Разворот каретки под курсором по клавише «повернуть» (R) — custom-input из data.lua.
+script.on_event("gofarovich-scl-reverse-cart", function(event)
+  local player = game.get_player(event.player_index)
+  if not player then return end
+  local sel = player.selected
+  if sel and sel.valid and sel.name == CART then
+    C.reverse_cart(sel.unit_number)
+  end
+end)
 
 -- GUI тайла (M6) и его on_gui_* события — в scripts/gui.lua.
 GUI.register_events()

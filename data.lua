@@ -66,6 +66,9 @@ local cart = {
   collision_mask = { layers = {} },
   collision_box = { { -0.3, -0.3 }, { 0.3, 0.3 } },
   selection_box = { { -0.35, -0.35 }, { 0.35, 0.35 } },
+  -- Каретка всегда выбирается курсором поверх невидимого рельса-комбинатора
+  -- (у того дефолтные 50): иначе каретка на тайле «проваливается» под рельс.
+  selection_priority = 60,
   minable = { mining_time = 0.1, result = "gofarovich-scl-cart" },
   random_variation_on_create = false,
   render_layer = "object",
@@ -126,5 +129,14 @@ for key, file in pairs(vp_files) do
   }
 end
 
-data:extend({ rail, rail_art, cart, rail_item, cart_item })
+-- Разворот каретки: ловим штатную клавишу «повернуть» (R по умолчанию, уважает
+-- переназначение игрока) и в control.lua разворачиваем каретку под курсором.
+local reverse_input = {
+  type = "custom-input",
+  name = "gofarovich-scl-reverse-cart",
+  key_sequence = "",
+  linked_game_control = "rotate",
+}
+
+data:extend({ rail, rail_art, cart, rail_item, cart_item, reverse_input })
 data:extend(vp_sprites)
