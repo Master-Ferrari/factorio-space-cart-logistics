@@ -89,7 +89,10 @@ local function rebuild_world()
   -- апдейт мода (этот rebuild) их сбрасывал бы.
   local saved = {}
   for key, node in pairs(storage.rails or {}) do
-    saved[key] = { mode = node.mode, manual_mask = node.manual_mask, circuit = node.circuit }
+    saved[key] = {
+      mode = node.mode, manual_mask = node.manual_mask, circuit = node.circuit,
+      conditions = node.conditions, read_next = node.read_next,
+    }
   end
   storage.rails = {}
   storage.convoys = {}
@@ -108,6 +111,7 @@ local function rebuild_world()
         x = tx, y = ty, entity = e, art = nil, conns = {}, mask = 0,
         mode = (s and s.mode) or "auto", manual_mask = s and s.manual_mask,
         circuit = (s and s.circuit) or false, eff_mask = 0,
+        conditions = (s and s.conditions) or {}, read_next = (s and s.read_next) or false,
       }
     end
   end

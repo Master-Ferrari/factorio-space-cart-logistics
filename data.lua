@@ -129,6 +129,29 @@ for key, file in pairs(vp_files) do
   }
 end
 
+-- Иконки 12 направлений для поп-апа «Select direction» (новая модель условий).
+-- Один вид условия = пара (вход → выход) каретки: 4 входа × 3 поворота = 12.
+-- Мок рисует tools/gen_directions.ps1 → graphics/directions/<вход><выход>.png.
+-- Имя прототипа: gofarovich-scl-dir-<вход>-<выход> (исп. в GUI как sprite=...),
+-- и как индикатор слева в строке условия, и как кнопка в сетке выбора.
+local DIR = GFX .. "directions/"
+local dir_pairs = {
+  { "N", "S" }, { "S", "N" }, { "E", "W" }, { "W", "E" },  -- прямые (оба направления)
+  { "N", "E" }, { "E", "N" }, { "N", "W" }, { "W", "N" },  -- повороты N-E / N-W
+  { "S", "E" }, { "E", "S" }, { "S", "W" }, { "W", "S" },  -- повороты S-E / S-W
+}
+local dir_sprites = {}
+for _, p in ipairs(dir_pairs) do
+  local e, x = p[1], p[2]
+  dir_sprites[#dir_sprites + 1] = {
+    type = "sprite",
+    name = "gofarovich-scl-dir-" .. e .. "-" .. x,
+    filename = DIR .. e:lower() .. x:lower() .. ".png",
+    size = 64,
+    flags = { "gui-icon" },
+  }
+end
+
 -- Разворот каретки: ловим штатную клавишу «повернуть» (R по умолчанию, уважает
 -- переназначение игрока) и в control.lua разворачиваем каретку под курсором.
 local reverse_input = {
@@ -140,3 +163,4 @@ local reverse_input = {
 
 data:extend({ rail, rail_art, cart, rail_item, cart_item, reverse_input })
 data:extend(vp_sprites)
+data:extend(dir_sprites)

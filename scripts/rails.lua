@@ -50,14 +50,76 @@ local function conns_from_mask(mask)
 end
 R.conns_from_mask = conns_from_mask
 
--- Пересчёт тайла: auto_mask из соседей → eff_mask (manual переопределяет auto) →
--- conns/mask/арт. eff_mask драйвит и graphics_variation, и маршрут.
--- TODO(6c/6d): в circuit-режиме eff = base ∧ условия.
-function R.rail_update(key)
+-- ── условия соединений (circuit-режим, M6c) ─────────────────────────
+-- Оценка «как данные»: значения сигналов берём из таблицы signals вида
+-- {"type/name"=count}. В 6c она пустая (реальной сети ещё нет) — 6d подаст
+-- объединённую цепь примари-комбинатора. Пустое условие (сигнал не выбран) =
+-- всегда истинно (путь активен).
+local CMP = {
+  ["<"] = function(a, b) return a < b end,
+  [">"] = function(a, b) return a > b end,
+  ["="] = function(a, b) return a == b end,
+  ["≥"] = function(a, b) return a >= b end,
+  ["≤"] = function(a, b) return a <= b end,
+  ["≠"] = function(a, b) return a ~= b end,
+}
+
+local function signal_val(signals, sig)
+  if not (sig and sig.name) then return 0 end
+  return signals[(sig.type or "item") .. "/" .. sig.name] or 0
+end
+
+local function cond_true(signals, cond)
+  if not (cond and cond.signal and cond.signal.name) then return true end
+  local f = CMP[cond.comparator or "="]
+  if not f then return true end
+  local left = signal_val(signals, cond.signal)
+  local right
+  if cond.use_signal and cond.second_signal and cond.second_signal.name then
+    right = signal_val(signals, cond.second_signal)
+  else
+    right = cond.constant or 0
+  end
+  return f(left, right)
+end
+
+-- Дефолт одного условия (на соединение).
+function R.default_cond()
+  return { signal = nil, comparator = "=", use_signal = false, second_signal = nil, constant = 0 }
+end
+
+-- Вернуть условие соединения, создав дефолт при первом обращении (для правок GUI).
+function R.ensure_cond(node, conn)
+  node.conditions = node.conditions or {}
+  node.conditions[conn] = node.conditions[conn] or R.default_cond()
+  return node.conditions[conn]
+end
+
+-- base = auto(соседи) | manual(ручная). В circuit-режиме (доступен только при
+-- manual): путь ВКЛ ⇔ base-бит И условие истинно. Иначе eff = base.
+local function compute_eff(node, signals)
+  local base = (node.mode == "manual") and (node.manual_mask or 0) or node.auto_mask
+  if not (node.mode == "manual" and node.circuit) then return base end
+  signals = signals or {}
+  local eff = 0
+  for conn, b in pairs(G.CONN_BIT) do
+    local bitv = bit32.lshift(1, b)
+    if bit32.band(base, bitv) ~= 0
+      and cond_true(signals, node.conditions and node.conditions[conn]) then
+      eff = bit32.bor(eff, bitv)
+    end
+  end
+  return eff
+end
+R.compute_eff = compute_eff
+
+-- Пересчёт тайла: auto_mask из соседей → eff_mask (manual переопределяет auto,
+-- circuit гейтит условиями) → conns/mask/арт. signals необязателен (6c: пусто).
+function R.rail_update(key, signals)
   local node = storage.rails[key]
   if not node then return end
   node.auto_mask = compute_auto_mask(key)
-  local eff = (node.mode == "manual") and (node.manual_mask or 0) or node.auto_mask
+  local eff = compute_eff(node, signals)
   node.eff_mask = eff
   node.mask = eff
   node.conns = conns_from_mask(eff)
@@ -122,6 +184,7 @@ function R.rail_add(entity)
   storage.rails[key] = {
     x = tx, y = ty, entity = entity, art = nil, conns = {}, mask = 0,
     mode = "auto", manual_mask = nil, circuit = false, eff_mask = 0,
+    conditions = {}, read_next = false,
   }
   R.rail_update(key)
   for _, side in ipairs(G.SIDES) do
