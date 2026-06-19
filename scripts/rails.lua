@@ -1,8 +1,12 @@
--- rails.lua — граф рельс: соединения тайла, битмаска, graphics_variation, маршрут.
+-- rails.lua — граф рельс: соединения тайла (геометрия), битмаска, graphics_variation,
+-- маршрут. Геометрия = галочки/соседи (eff_mask); куда поедет каретка — направленные
+-- условия входа (cond_lists), см. readme «Сигналы и условия (v2.4)».
 -- storage.rails[key] = { x, y, entity(=примари комбинатор), art(=арт-сущность),
---                        conns = {["N-S"]=true,...}, mask }
+--   conns = {["N-S"]=true,...}, mask, eff_mask, mode, auto_mask, manual_mask,
+--   conditions_on(bool), cond_lists = { [entry] = { {exit,...предикат}, ... } }, read_next }
 
 local G = require("scripts.geometry")
+local Circuit = require("scripts.circuit")
 
 local R = {}
 
@@ -50,11 +54,11 @@ local function conns_from_mask(mask)
 end
 R.conns_from_mask = conns_from_mask
 
--- ── условия соединений (circuit-режим, M6c) ─────────────────────────
--- Оценка «как данные»: значения сигналов берём из таблицы signals вида
--- {"type/name"=count}. В 6c она пустая (реальной сети ещё нет) — 6d подаст
--- объединённую цепь примари-комбинатора. Пустое условие (сигнал не выбран) =
--- всегда истинно (путь активен).
+-- ── предикат условия маршрута (направленная модель, v2.4) ───────────
+-- Предикат сравнивает значения сигналов из объединённой red+green сети примари-
+-- комбинатора (таблица {"type/name"=count}) — как у комбинатора. Пустой предикат
+-- (сигнал не выбран) = всегда истинно (catch-all-выход). Условия НЕ гейтят
+-- геометрию — только выбор выхода в R.pick_exit.
 local CMP = {
   ["<"] = function(a, b) return a < b end,
   [">"] = function(a, b) return a > b end,
@@ -82,44 +86,29 @@ local function cond_true(signals, cond)
   end
   return f(left, right)
 end
+R.cond_true = cond_true
 
--- Дефолт одного условия (на соединение).
-function R.default_cond()
-  return { signal = nil, comparator = "=", use_signal = false, second_signal = nil, constant = 0 }
+-- Шаблон нового условия входа. exit — один из 3 поворотов входа (задаётся
+-- при создании из GUI/команды). Предикат по умолчанию пустой → всегда истинно.
+function R.new_cond(exit)
+  return { exit = exit, name = "", signal = nil, comparator = "=",
+           use_signal = false, second_signal = nil, constant = 0 }
 end
 
--- Вернуть условие соединения, создав дефолт при первом обращении (для правок GUI).
-function R.ensure_cond(node, conn)
-  node.conditions = node.conditions or {}
-  node.conditions[conn] = node.conditions[conn] or R.default_cond()
-  return node.conditions[conn]
-end
-
--- base = auto(соседи) | manual(ручная). В circuit-режиме (доступен только при
--- manual): путь ВКЛ ⇔ base-бит И условие истинно. Иначе eff = base.
-local function compute_eff(node, signals)
-  local base = (node.mode == "manual") and (node.manual_mask or 0) or node.auto_mask
-  if not (node.mode == "manual" and node.circuit) then return base end
-  signals = signals or {}
-  local eff = 0
-  for conn, b in pairs(G.CONN_BIT) do
-    local bitv = bit32.lshift(1, b)
-    if bit32.band(base, bitv) ~= 0
-      and cond_true(signals, node.conditions and node.conditions[conn]) then
-      eff = bit32.bor(eff, bitv)
-    end
-  end
-  return eff
+-- Геометрия тайла: base = auto(соседи) | manual(ручная маска). Условия её НЕ
+-- гейтят (пересмотр v2.4) — eff_mask зависит только от галочек/соседей.
+local function compute_eff(node)
+  return (node.mode == "manual") and (node.manual_mask or 0) or (node.auto_mask or 0)
 end
 R.compute_eff = compute_eff
 
--- Пересчёт тайла: auto_mask из соседей → eff_mask (manual переопределяет auto,
--- circuit гейтит условиями) → conns/mask/арт. signals необязателен (6c: пусто).
-function R.rail_update(key, signals)
+-- Пересчёт тайла: auto_mask из соседей → eff_mask (manual переопределяет auto) →
+-- conns/mask/арт. Условия здесь не участвуют (геометрия = галочки/соседи).
+function R.rail_update(key)
   local node = storage.rails[key]
   if not node then return end
   node.auto_mask = compute_auto_mask(key)
-  local eff = compute_eff(node, signals)
+  local eff = compute_eff(node)
   node.eff_mask = eff
   node.mask = eff
   node.conns = conns_from_mask(eff)
@@ -183,8 +172,8 @@ function R.rail_add(entity)
   if storage.rails[key] then return end
   storage.rails[key] = {
     x = tx, y = ty, entity = entity, art = nil, conns = {}, mask = 0,
-    mode = "auto", manual_mask = nil, circuit = false, eff_mask = 0,
-    conditions = {}, read_next = false,
+    mode = "auto", manual_mask = nil, conditions_on = false, eff_mask = 0,
+    cond_lists = {}, read_next = false,
   }
   R.rail_update(key)
   for _, side in ipairs(G.SIDES) do
@@ -204,8 +193,22 @@ function R.rail_remove(entity)
   end
 end
 
--- Войдя со стороны entry, выбрать выход: прямо → направо → налево → стоп.
+-- Войдя со стороны entry, выбрать выход.
+-- 1) Направленные условия входа (cond_lists[entry]) сверху вниз: первое условие,
+--    чей выход — включённый путь И предикат истинен, задаёт выход. Сеть читаем
+--    только если у входа есть условия (частый случай — их нет, читать незачем).
+-- 2) Иначе дефолт: прямо → направо → налево → стоп.
 function R.pick_exit(node, entry)
+  local list = node.cond_lists and node.cond_lists[entry]
+  if list and #list > 0 then
+    local signals = Circuit.read(node) or {}
+    for _, cond in ipairs(list) do
+      local conn = G.CONN[entry][cond.exit]
+      if conn and node.conns[conn] and cond_true(signals, cond) then
+        return cond.exit
+      end
+    end
+  end
   local order = { G.OPP[entry], G.CW[entry], G.CCW[entry] }
   for _, cand in ipairs(order) do
     if node.conns[G.CONN[entry][cand]] then return cand end

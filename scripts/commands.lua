@@ -2,6 +2,7 @@
 -- (Commands.register), на каждом загрузе — команды не персистятся в storage.
 
 local G = require("scripts.geometry")
+local R = require("scripts.rails")
 local C = require("scripts.convoys")
 local Circuit = require("scripts.circuit")
 
@@ -78,6 +79,52 @@ function Commands.register()
     local parts = {}
     for k, v in pairs(merged) do parts[#parts + 1] = k .. "=" .. v end
     player.print("[SCL] signals @ " .. key .. ": " .. (#parts > 0 and table.concat(parts, ", ") or "(none)"))
+  end)
+
+  -- 6e: задать направленное условие маршрута на тайл под игроком (тест без GUI).
+  -- /scl-cond-add <entry> <exit> [signal-name op const]
+  --   entry/exit ∈ N/E/S/W (разворот запрещён). Без предиката = всегда истинно.
+  --   С предикатом: item-сигнал по имени, op ∈ < > = ≥ ≤ ≠. Пример:
+  --   /scl-cond-add N E iron-plate > 5  — каретка с верха при item iron-plate>5 → на E.
+  commands.add_command("scl-cond-add",
+    "Add a routing condition to the rail under you: <entry> <exit> [item-signal op const]", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local key = G.key_of_tile(G.tile_of(player.position))
+    local node = storage.rails[key]
+    if not node then player.print("[SCL] No rail under you (" .. key .. ").") return end
+    local args = {}
+    for w in string.gmatch(cmd.parameter or "", "%S+") do args[#args + 1] = w end
+    local entry, exit = (args[1] or ""):upper(), (args[2] or ""):upper()
+    local conn = G.CONN[entry] and G.CONN[entry][exit]
+    if not conn then
+      player.print("[SCL] Bad direction. Use: /scl-cond-add <entry> <exit> (N/E/S/W, no U-turn).")
+      return
+    end
+    local cond = R.new_cond(exit)
+    if args[3] and args[4] and args[5] then
+      cond.signal = { type = "item", name = args[3] }
+      cond.comparator = args[4]
+      cond.constant = tonumber(args[5]) or 0
+    end
+    node.cond_lists = node.cond_lists or {}
+    node.cond_lists[entry] = node.cond_lists[entry] or {}
+    table.insert(node.cond_lists[entry], cond)
+    local pred = cond.signal
+      and (" if item/" .. cond.signal.name .. " " .. cond.comparator .. " " .. cond.constant)
+      or " (always)"
+    player.print("[SCL] cond @ " .. key .. ": " .. entry .. "→" .. exit .. pred ..
+      "  [#" .. #node.cond_lists[entry] .. " in " .. entry .. "]")
+  end)
+
+  commands.add_command("scl-cond-clear", "Clear all routing conditions on the rail under you", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local key = G.key_of_tile(G.tile_of(player.position))
+    local node = storage.rails[key]
+    if not node then player.print("[SCL] No rail under you (" .. key .. ").") return end
+    node.cond_lists = {}
+    player.print("[SCL] cleared conditions @ " .. key)
   end)
 end
 

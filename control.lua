@@ -85,13 +85,15 @@ end
 -- Полная пересборка состояния из сущностей в мире.
 -- Нужна при апдейте мода (старый формат storage может не иметь conns/mask).
 local function rebuild_world()
-  -- сохраняем ручные настройки тайлов (mode/manual_mask/circuit) по ключу — иначе
-  -- апдейт мода (этот rebuild) их сбрасывал бы.
+  -- сохраняем ручные настройки тайлов (геометрия + условия маршрута) по ключу —
+  -- иначе апдейт мода (этот rebuild) их сбрасывал бы. Старый формат `conditions`
+  -- (модель v2.3, отменена) НЕ переносим — он несовместим с `cond_lists`.
   local saved = {}
   for key, node in pairs(storage.rails or {}) do
     saved[key] = {
-      mode = node.mode, manual_mask = node.manual_mask, circuit = node.circuit,
-      conditions = node.conditions, read_next = node.read_next,
+      mode = node.mode, manual_mask = node.manual_mask,
+      conditions_on = node.conditions_on, cond_lists = node.cond_lists,
+      read_next = node.read_next,
     }
   end
   storage.rails = {}
@@ -110,8 +112,8 @@ local function rebuild_world()
       storage.rails[key] = {
         x = tx, y = ty, entity = e, art = nil, conns = {}, mask = 0,
         mode = (s and s.mode) or "auto", manual_mask = s and s.manual_mask,
-        circuit = (s and s.circuit) or false, eff_mask = 0,
-        conditions = (s and s.conditions) or {}, read_next = (s and s.read_next) or false,
+        conditions_on = (s and s.conditions_on) or false, eff_mask = 0,
+        cond_lists = (s and s.cond_lists) or {}, read_next = (s and s.read_next) or false,
       }
     end
   end
