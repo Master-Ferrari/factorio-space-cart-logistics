@@ -101,15 +101,13 @@ function Commands.register()
       player.print("[SCL] Bad direction. Use: /scl-cond-add <entry> <exit> (N/E/S/W, no U-turn).")
       return
     end
-    local cond = R.new_cond(exit)
+    local cond = R.cond_add(node, entry, exit)
     if args[3] and args[4] and args[5] then
       cond.signal = { type = "item", name = args[3] }
       cond.comparator = args[4]
       cond.constant = tonumber(args[5]) or 0
     end
-    node.cond_lists = node.cond_lists or {}
-    node.cond_lists[entry] = node.cond_lists[entry] or {}
-    table.insert(node.cond_lists[entry], cond)
+    node.conditions_on = true  -- мастер-переключатель: иначе pick_exit условия игнорит
     local pred = cond.signal
       and (" if item/" .. cond.signal.name .. " " .. cond.comparator .. " " .. cond.constant)
       or " (always)"

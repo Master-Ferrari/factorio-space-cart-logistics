@@ -95,6 +95,76 @@ function R.new_cond(exit)
            use_signal = false, second_signal = nil, constant = 0 }
 end
 
+-- ── правки списков условий (GUI 6f / debug-команды) ─────────────────
+-- cond_lists[entry] = упорядоченный массив условий (приоритет сверху вниз).
+-- Категория входа существует, пока в ней есть хоть одно условие (пустой массив
+-- сносим, чтобы GUI не рисовал пустую категорию).
+function R.cond_add(node, entry, exit)
+  node.cond_lists = node.cond_lists or {}
+  node.cond_lists[entry] = node.cond_lists[entry] or {}
+  local cond = R.new_cond(exit)
+  table.insert(node.cond_lists[entry], cond)
+  return cond
+end
+
+function R.cond_get(node, entry, idx)
+  local list = node.cond_lists and node.cond_lists[entry]
+  return list and list[idx]
+end
+
+function R.cond_remove(node, entry, idx)
+  local list = node.cond_lists and node.cond_lists[entry]
+  if not (list and list[idx]) then return end
+  table.remove(list, idx)
+  if #list == 0 then node.cond_lists[entry] = nil end
+end
+
+-- Сдвиг условия внутри категории на delta (±1) — реордер ↑/↓ (нативного drag нет).
+function R.cond_move(node, entry, idx, delta)
+  local list = node.cond_lists and node.cond_lists[entry]
+  if not list then return end
+  local j = idx + delta
+  if j < 1 or j > #list then return end
+  list[idx], list[j] = list[j], list[idx]
+end
+
+-- Удалить всю категорию входа (крестик на заголовке).
+function R.cat_clear(node, entry)
+  if node.cond_lists then node.cond_lists[entry] = nil end
+end
+
+-- Порядок категорий для отображения (чисто визуал, на маршрут НЕ влияет): хранится
+-- в node.cat_order. Возвращаем актуальный список входов-с-условиями: сначала по
+-- сохранённому порядку, затем дописываем новые в каноничном N/E/S/W.
+function R.cat_order_list(node)
+  node.cat_order = node.cat_order or {}
+  local has = function(e)
+    return node.cond_lists and node.cond_lists[e] and #node.cond_lists[e] > 0
+  end
+  local seen, out = {}, {}
+  for _, e in ipairs(node.cat_order) do
+    if has(e) and not seen[e] then out[#out + 1] = e; seen[e] = true end
+  end
+  for _, e in ipairs({ "N", "E", "S", "W" }) do
+    if has(e) and not seen[e] then out[#out + 1] = e; seen[e] = true end
+  end
+  node.cat_order = out
+  return out
+end
+
+-- Сдвиг категории в порядке отображения на delta (±1).
+function R.cat_move(node, entry, delta)
+  local list = R.cat_order_list(node)
+  for i, e in ipairs(list) do
+    if e == entry then
+      local j = i + delta
+      if j >= 1 and j <= #list then list[i], list[j] = list[j], list[i] end
+      break
+    end
+  end
+  node.cat_order = list
+end
+
 -- Геометрия тайла: base = auto(соседи) | manual(ручная маска). Условия её НЕ
 -- гейтят (пересмотр v2.4) — eff_mask зависит только от галочек/соседей.
 local function compute_eff(node)
@@ -194,12 +264,13 @@ function R.rail_remove(entity)
 end
 
 -- Войдя со стороны entry, выбрать выход.
--- 1) Направленные условия входа (cond_lists[entry]) сверху вниз: первое условие,
---    чей выход — включённый путь И предикат истинен, задаёт выход. Сеть читаем
---    только если у входа есть условия (частый случай — их нет, читать незачем).
+-- 1) Если включён мастер-переключатель conditions_on — направленные условия входа
+--    (cond_lists[entry]) сверху вниз: первое условие, чей выход — включённый путь
+--    И предикат истинен, задаёт выход. Сеть читаем только если у входа есть
+--    условия (частый случай — их нет/выключены, читать незачем).
 -- 2) Иначе дефолт: прямо → направо → налево → стоп.
 function R.pick_exit(node, entry)
-  local list = node.cond_lists and node.cond_lists[entry]
+  local list = node.conditions_on and node.cond_lists and node.cond_lists[entry]
   if list and #list > 0 then
     local signals = Circuit.read(node) or {}
     for _, cond in ipairs(list) do

@@ -79,7 +79,8 @@ local function ensure_storage()
   storage.convoys = storage.convoys or {}
   storage.carts = storage.carts or {}
   storage.next_convoy_id = storage.next_convoy_id or 1
-  storage.gui_open = storage.gui_open or {}  -- player.index -> rail tile key
+  storage.gui_open = storage.gui_open or {}    -- player.index -> rail tile key
+  storage.gui_popup = storage.gui_popup or {}  -- player.index -> bool (Select direction открыт)
 end
 
 -- Полная пересборка состояния из сущностей в мире.
@@ -93,7 +94,7 @@ local function rebuild_world()
     saved[key] = {
       mode = node.mode, manual_mask = node.manual_mask,
       conditions_on = node.conditions_on, cond_lists = node.cond_lists,
-      read_next = node.read_next,
+      cat_order = node.cat_order, read_next = node.read_next,
     }
   end
   storage.rails = {}
@@ -113,7 +114,8 @@ local function rebuild_world()
         x = tx, y = ty, entity = e, art = nil, conns = {}, mask = 0,
         mode = (s and s.mode) or "auto", manual_mask = s and s.manual_mask,
         conditions_on = (s and s.conditions_on) or false, eff_mask = 0,
-        cond_lists = (s and s.cond_lists) or {}, read_next = (s and s.read_next) or false,
+        cond_lists = (s and s.cond_lists) or {}, cat_order = s and s.cat_order,
+        read_next = (s and s.read_next) or false,
       }
     end
   end
