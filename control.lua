@@ -7,12 +7,16 @@
 --   circuit.lua  — чтение цепи примари-комбинатора.
 --   gui.lua      — окно тайла + роутинг on_gui_* событий.
 --   commands.lua — отладочные /scl-* команды.
+--   style_browser.lua — браузер GUI-стилей (/scl-style-browser).
+--   reorder_demo.lua   — демо DnD-реордера (/scl-drag-reorder, нужен flib).
 
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local C = require("scripts.convoys")
 local GUI = require("scripts.gui")
 local Commands = require("scripts.commands")
+local StyleBrowser = require("scripts.style_browser")
+local ReorderDemo = require("scripts.reorder_demo")
 
 local RAIL, CART = G.RAIL, G.CART
 
@@ -148,7 +152,10 @@ script.on_event(defines.events.script_raised_destroy, on_removed, build_filter)
 script.on_event(defines.events.on_marked_for_deconstruction, on_marked,
   { { filter = "name", name = RAIL } })
 
-script.on_event(defines.events.on_tick, C.on_tick)
+script.on_event(defines.events.on_tick, function()
+  C.on_tick()
+  ReorderDemo.on_tick()
+end)
 
 -- Разворот каретки под курсором по клавише «повернуть» (R) — custom-input из data.lua.
 script.on_event("gofarovich-scl-reverse-cart", function(event)
@@ -165,3 +172,9 @@ GUI.register_events()
 
 -- Отладочные /scl-* команды — в scripts/commands.lua.
 Commands.register()
+
+-- Браузер GUI-стилей (независимый модуль) — /scl-style-browser.
+StyleBrowser.register()
+
+-- Демо DnD-реордера списка (flib titlebar handle) — /scl-drag-reorder.
+ReorderDemo.register()

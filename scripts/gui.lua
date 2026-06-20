@@ -105,6 +105,7 @@ end
 -- 3×3 галочки-компас поверх вьюпорта (только в manual): состояние = бит ручной маски.
 -- VIEW = натуральный размер текстур вьюпорта (256, граф. 1:1, дальше — апскейл/блюр).
 local VIEW = 256
+local COND_WIDTH = 446  -- ширина окна при открытых условиях
 local function add_path_checks(overlay, node)
   local at = {}
   for conn, rc in pairs(CONN_CELL) do
@@ -139,7 +140,10 @@ local function add_layer(stack, sprite)
 end
 
 local function add_viewport(parent, node)
-  local deep = parent.add{ type = "frame", style = "deep_frame_in_shallow_frame" }
+  local wrap = parent.add{ type = "flow", direction = "horizontal" }
+  wrap.style.horizontally_stretchable = true
+  wrap.style.horizontal_align = "center"
+  local deep = wrap.add{ type = "frame", style = "deep_frame_in_shallow_frame" }
   local stack = deep.add{ type = "flow", direction = "vertical" }
   stack.style.vertical_spacing = 0
   add_layer(stack, VP_BASE)
@@ -170,9 +174,9 @@ local function add_reorder(parent, up_name, dn_name, can_up, can_dn)
     b.style.minimal_width = 0
     b.style.minimal_height = 0
     b.style.width = 20
-    b.style.height = 14
+    b.style.height = 22
     b.style.padding = 0
-    b.style.font = "default-small"
+    b.style.font = "default-tiny-bold"
     b.enabled = en
   end
   arr(up_name, "▲", can_up)
@@ -181,9 +185,8 @@ end
 
 -- Светлая карточка-строка в тёмном контейнере. Возвращает внутренний flow (центрирован).
 local function row_card(parent, indent)
-  local box = parent.add{ type = "frame", style = "inside_shallow_frame" }  -- светлая заливка
+  local box = parent.add{ type = "frame", style = "decider_combinator_frame" }  -- фон опции/категории
   box.style.horizontally_stretchable = true
-  box.style.padding = 3
   if indent then box.style.left_margin = 16 end
   local row = box.add{ type = "flow", direction = "horizontal" }
   row.style.vertical_align = "center"
@@ -200,9 +203,11 @@ local function add_category_header(parent, entry, ci, count)
   local sp = row.add{ type = "empty-widget" }
   sp.style.horizontally_stretchable = true
   local del = row.add{ type = "sprite-button", name = GUI.CAT_DEL .. entry,
-    style = "tool_button_red", sprite = "utility/trash",
+    style = "dark_button", sprite = "utility/close",
     tooltip = { "gofarovich-scl-gui.del-cat" } }
-  del.style.size = 28
+  del.style.width = 16
+  del.style.height = 44
+  del.style.padding = 0
 end
 
 local function add_cond_row(parent, entry, idx, cond, count)
@@ -212,56 +217,62 @@ local function add_cond_row(parent, entry, idx, cond, count)
 
   local icon = row.add{ type = "sprite",
     sprite = "gofarovich-scl-dir-" .. entry .. "-" .. cond.exit }
-  icon.style.width = 30
-  icon.style.height = 30
+  icon.style.width = 44
+  icon.style.height = 44
   icon.style.stretch_image_to_widget_size = true
 
   local spacer = row.add{ type = "empty-widget" }
   spacer.style.horizontally_stretchable = true
 
-  row.add{ type = "choose-elem-button", name = GUI.CN .. "siga" .. sfx,
+  local siga = row.add{ type = "choose-elem-button", name = GUI.CN .. "siga" .. sfx,
     elem_type = "signal", signal = cond.signal }
+  siga.style.size = 44
 
   local dd = row.add{ type = "drop-down", name = GUI.CN .. "cmp" .. sfx,
     items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
   dd.style.width = 50
+  dd.style.height = 44
 
   if cond.use_signal then
-    row.add{ type = "choose-elem-button", name = GUI.CN .. "sigb" .. sfx,
+    local sigb = row.add{ type = "choose-elem-button", name = GUI.CN .. "sigb" .. sfx,
       elem_type = "signal", signal = cond.second_signal }
+    sigb.style.size = 44
   else
     local c = row.add{ type = "button", name = GUI.CN .. "cst" .. sfx, style = "slot_button",
       caption = abbrev(cond.constant or 0), tooltip = tostring(cond.constant or 0) }
-    c.style.size = 40
+    c.style.size = 44
     c.style.font_color = { 1, 1, 1 }
   end
 
   local tog = row.add{ type = "sprite-button", name = GUI.CN .. "tog" .. sfx,
     style = "tool_button", sprite = "utility/change_recipe" }
-  tog.style.size = 28
+  tog.style.size = 44
 
   local del = row.add{ type = "sprite-button", name = GUI.CN .. "del" .. sfx,
-    style = "tool_button_red", sprite = "utility/trash",
+    style = "dark_button", sprite = "utility/close",
     tooltip = { "gofarovich-scl-gui.del-cond" } }
-  del.style.size = 28
+  del.style.width = 16
+  del.style.height = 44
+  del.style.padding = 0
 end
 
 -- Панель условий снизу: тёмное пространство (`inside_deep_frame`), внутри плоский
 -- список светлых карточек — категории и (с отступом) их условия.
 local function add_conditions_panel(parent, node)
-  local panel = parent.add{ type = "frame", style = "inside_deep_frame", direction = "vertical" }
+  local panel = parent.add{ type = "frame", style = "inside_shallow_frame", direction = "vertical" }
   panel.style.horizontally_stretchable = true
   panel.style.top_margin = 4
 
   -- список — в scroll-pane с лимитом высоты: при переполнении появляется слайдер.
-  local scroll = panel.add{ type = "scroll-pane",
+  local scroll = panel.add{ type = "scroll-pane", style = "decider_combinator_conditions_scroll_pane",
     horizontal_scroll_policy = "never", vertical_scroll_policy = "auto" }
   scroll.style.maximal_height = 300
   scroll.style.horizontally_stretchable = true
+  scroll.style.minimal_width = 0      -- vanilla-стиль не диктует ширину; её задаёт окно (COND_WIDTH)
+  scroll.style.padding = 2
   local inner = scroll.add{ type = "flow", direction = "vertical" }
-  inner.style.padding = 6
+  inner.style.padding = 0
   inner.style.vertical_spacing = 2
-  inner.style.minimal_width = 260
   inner.style.horizontally_stretchable = true
 
   local cats = R.cat_order_list(node)
@@ -273,13 +284,18 @@ local function add_conditions_panel(parent, node)
     end
   end
 
-  -- «New condition» + read next — фиксированы под скроллом (всегда видны).
+  -- «New condition» — в том же списке, под условиями (скроллится вместе с ними).
+  local add = inner.add{ type = "button", name = GUI.NEWCOND,
+    caption = { "gofarovich-scl-gui.new-cond" } }
+  add.style.horizontally_stretchable = true
+  -- add.style.font_color = { 1, 1, 1 }
+  add.style.height = 32   -- стандартная ~28 + 20
+
+  -- read next — фиксирован под скроллом (всегда виден).
   local foot = panel.add{ type = "flow", direction = "vertical" }
   foot.style.padding = 6
   foot.style.vertical_spacing = 2
   foot.style.horizontally_stretchable = true
-  local add = foot.add{ type = "button", name = GUI.NEWCOND, caption = { "gofarovich-scl-gui.new-cond" } }
-  add.style.horizontally_stretchable = true
   foot.add{ type = "line" }
   foot.add{ type = "checkbox", name = GUI.READ_NEXT,
     caption = { "gofarovich-scl-gui.read-next" }, state = node.read_next == true }
@@ -385,6 +401,7 @@ function GUI.open(player, node)
 
   local content = frame.add{
     type = "frame", style = "inside_shallow_frame_with_padding", direction = "vertical" }
+  content.style.horizontally_stretchable = true
   add_viewport(content, node)
   content.add{ type = "line" }.style.margin = 4
   local manual = node.mode == "manual"
@@ -397,6 +414,7 @@ function GUI.open(player, node)
 
   -- панель условий — ПОД основной (вертикально), в том же окне
   if manual and node.conditions_on then
+    frame.style.width = COND_WIDTH   -- фикс. ширина окна с условиями; вьюпорт центрируется
     add_conditions_panel(frame, node)
   end
 
