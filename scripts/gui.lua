@@ -13,9 +13,17 @@
 
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
+local Circuit = require("scripts.circuit")
 local Events = require("scripts.events")
 
 local GUI = {}
+
+-- Подсветка выполненного условия (как у decider-комбинатора): вместо обычной заливки
+-- карточки — «fulfilled»-рамка. Чтобы даже 1-тиковое срабатывание было заметно глазу,
+-- держим подсветку LIT_HOLD тиков после последнего «истинно» (латч в on_tick).
+local FRAME_NORMAL = "decider_combinator_frame"
+local FRAME_LIT    = "gofarovich-scl-cond-fulfilled-frame"  -- = fulfilled-рамка + растяжка (data.lua)
+local LIT_HOLD     = 30
 
 GUI.FRAME       = "gofarovich-scl-gui"
 GUI.CLOSE       = "gofarovich-scl-close"
@@ -185,8 +193,8 @@ local function add_reorder(parent, up_name, dn_name, can_up, can_dn)
 end
 
 -- Светлая карточка-строка в тёмном контейнере. Возвращает внутренний flow (центрирован).
-local function row_card(parent, indent)
-  local box = parent.add{ type = "frame", style = "decider_combinator_frame" }  -- фон опции/категории
+local function row_card(parent, indent, style)
+  local box = parent.add{ type = "frame", style = style or FRAME_NORMAL }  -- фон опции/категории
   box.style.horizontally_stretchable = true
   if indent then box.style.left_margin = 16 end
   local row = box.add{ type = "flow", direction = "horizontal" }
@@ -214,9 +222,9 @@ end
 -- stale — выход условия выключен галочкой (CONN[entry][exit] не в eff_mask): маршрут
 -- такое условие игнорирует (node.conns-гейт в R.pick_exit), GUI гасит его предикат-
 -- виджеты. Реордер/удаление оставляем активными — стейл можно снять или переставить.
-local function add_cond_row(parent, entry, idx, cond, count, stale)
+local function add_cond_row(parent, entry, idx, cond, count, stale, lit)
   local sfx = "-" .. entry .. "-" .. idx
-  local row = row_card(parent, true)
+  local row = row_card(parent, true, lit and FRAME_LIT or FRAME_NORMAL)
   add_reorder(row, GUI.CN .. "up" .. sfx, GUI.CN .. "dn" .. sfx, idx > 1, idx < count)
 
   local icon = row.add{ type = "sprite",
@@ -264,6 +272,8 @@ local function add_cond_row(parent, entry, idx, cond, count, stale)
   del.style.width = 16
   del.style.height = 44
   del.style.padding = 0
+
+  return row.parent  -- box-карточка (для живой смены заливки в on_tick)
 end
 
 -- Панель условий снизу: тёмное пространство (`inside_deep_frame`), внутри плоский
@@ -285,6 +295,8 @@ local function add_conditions_panel(parent, node)
   inner.style.vertical_spacing = 2
   inner.style.horizontally_stretchable = true
 
+  local signals = Circuit.read_cached(node)
+  local rows = {}  -- {box, entry, idx, lit, lit_tick} — для живой подсветки в on_tick
   local cats = R.cat_order_list(node)
   for ci, entry in ipairs(cats) do
     add_category_header(inner, entry, ci, #cats)
@@ -292,7 +304,10 @@ local function add_conditions_panel(parent, node)
     for i, cond in ipairs(list) do
       local conn = G.CONN[entry][cond.exit]
       local stale = not (conn and node.conns[conn])
-      add_cond_row(inner, entry, i, cond, #list, stale)
+      local lit = (not stale) and R.cond_true(signals, cond)
+      local box = add_cond_row(inner, entry, i, cond, #list, stale, lit)
+      rows[#rows + 1] = { box = box, entry = entry, idx = i,
+        lit = lit, lit_tick = lit and game.tick or nil }
     end
   end
 
@@ -311,6 +326,8 @@ local function add_conditions_panel(parent, node)
   foot.add{ type = "line" }
   foot.add{ type = "checkbox", name = GUI.READ_NEXT,
     caption = { "gofarovich-scl-gui.read-next" }, state = node.read_next == true }
+
+  return rows
 end
 
 -- ── поп-ап «Select direction» (5×5) ─────────────────────────────────
@@ -395,6 +412,7 @@ function GUI.close(player)
   local frame = player.gui.screen[GUI.FRAME]
   if frame then frame.destroy() end
   if storage.gui_open then storage.gui_open[player.index] = nil end
+  if storage.gui_live then storage.gui_live[player.index] = nil end
 end
 
 function GUI.open(player, node)
@@ -425,14 +443,54 @@ function GUI.open(player, node)
   end
 
   -- панель условий — ПОД основной (вертикально), в том же окне
+  storage.gui_live = storage.gui_live or {}
+  storage.gui_live[player.index] = nil
   if manual and node.conditions_on then
     frame.style.width = COND_WIDTH   -- фикс. ширина окна с условиями; вьюпорт центрируется
-    add_conditions_panel(frame, node)
+    local rows = add_conditions_panel(frame, node)
+    storage.gui_live[player.index] = { key = G.key_of_tile(node.x, node.y), rows = rows }
   end
 
   if loc then frame.location = loc else frame.auto_center = true end
   storage.gui_open[player.index] = G.key_of_tile(node.x, node.y)
   player.opened = frame
+end
+
+-- Применить заливку карточки условия (рамка fulfilled / обычная). Смена named-style
+-- сбрасывает свойства стиля — переустанавливаем растяжку и отступ условия.
+local function apply_lit(box, lit)
+  box.style = lit and FRAME_LIT or FRAME_NORMAL
+  box.style.horizontally_stretchable = true
+  box.style.left_margin = 16
+end
+
+-- Живая подсветка выполненных условий у открытых окон (как у decider-комбинатора).
+-- Латч LIT_HOLD: 1-тиковое срабатывание остаётся видимым ~0.5 c.
+function GUI.on_tick()
+  local live = storage.gui_live
+  if not live then return end
+  local tick = game.tick
+  for _, st in pairs(live) do
+    local node = st.key and storage.rails[st.key]
+    if node and node.entity and node.entity.valid then
+      local signals = Circuit.read_cached(node)
+      for _, r in ipairs(st.rows) do
+        if r.box and r.box.valid then
+          local cond = R.cond_get(node, r.entry, r.idx)
+          local conn = cond and G.CONN[r.entry][cond.exit]
+          local stale = not (conn and node.conns[conn])
+          if cond and (not stale) and R.cond_true(signals, cond) then
+            r.lit_tick = tick
+          end
+          local want = r.lit_tick ~= nil and (tick - r.lit_tick) < LIT_HOLD
+          if want ~= r.lit then
+            apply_lit(r.box, want)
+            r.lit = want
+          end
+        end
+      end
+    end
+  end
 end
 
 -- ── роутинг событий GUI ─────────────────────────────────────────────

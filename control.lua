@@ -85,6 +85,7 @@ local function ensure_storage()
   storage.next_convoy_id = storage.next_convoy_id or 1
   storage.gui_open = storage.gui_open or {}    -- player.index -> rail tile key
   storage.gui_popup = storage.gui_popup or {}  -- player.index -> bool (Select direction открыт)
+  storage.gui_live = storage.gui_live or {}    -- player.index -> { key, rows } (живая подсветка)
 end
 
 -- Полная пересборка состояния из сущностей в мире.
@@ -155,6 +156,7 @@ script.on_event(defines.events.on_marked_for_deconstruction, on_marked,
 script.on_event(defines.events.on_tick, function()
   C.on_tick()
   ReorderDemo.on_tick()
+  GUI.on_tick()
 end)
 
 -- Разворот каретки под курсором по клавише «повернуть» (R) — custom-input из data.lua.

@@ -23,4 +23,24 @@ function Circuit.read(node)
   return merged
 end
 
+-- Кэш на тайл-на-тик (6g). read() детерминированно, но звать get_circuit_network на
+-- КАЖДОМ входе каретки дорого (на перекрёстке за тик в тайл входят несколько кареток).
+-- В API 2.0 нет события «сигналы сети сменились», поэтому троттлим на 1 тик: тайл
+-- читаем максимум раз за тик, в пределах тика отдаём кэш. Это чистая мемоизация
+-- детерминированного чтения → мультиплеер-безопасно. Ключ — тайл (x:y), чтобы кэш был
+-- ограничен числом тайлов, а не висел на пересоздаваемых node-таблицах (rebuild_world).
+-- Записи мёртвых тайлов просто перестают запрашиваться (крошечные, не чистим спец-кодом).
+local cache = {}  -- [x:y] = { tick, signals }
+
+function Circuit.read_cached(node)
+  if not (node and node.entity and node.entity.valid) then return {} end
+  local key = node.x .. ":" .. node.y
+  local c = cache[key]
+  local tick = game.tick
+  if c and c.tick == tick then return c.signals end
+  local signals = Circuit.read(node) or {}
+  cache[key] = { tick = tick, signals = signals }
+  return signals
+end
+
 return Circuit

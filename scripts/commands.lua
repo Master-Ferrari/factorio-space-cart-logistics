@@ -84,10 +84,11 @@ function Commands.register()
   -- 6e: задать направленное условие маршрута на тайл под игроком (тест без GUI).
   -- /scl-cond-add <entry> <exit> [signal-name op const]
   --   entry/exit ∈ N/E/S/W (разворот запрещён). Без предиката = всегда истинно.
-  --   С предикатом: item-сигнал по имени, op ∈ < > = ≥ ≤ ≠. Пример:
-  --   /scl-cond-add N E iron-plate > 5  — каретка с верха при item iron-plate>5 → на E.
+  --   С предикатом: item-сигнал по имени ЛИБО агрегат each/any/everything, op ∈ < > = ≥ ≤ ≠.
+  --   /scl-cond-add N E iron-plate > 5    — с верха при item iron-plate>5 → на E.
+  --   /scl-cond-add N E any > 0           — с верха, если в сети есть любой сигнал >0 → на E.
   commands.add_command("scl-cond-add",
-    "Add a routing condition to the rail under you: <entry> <exit> [item-signal op const]", function(cmd)
+    "Add a routing condition to the rail under you: <entry> <exit> [item-signal|each|any|everything op const]", function(cmd)
     local player = game.get_player(cmd.player_index)
     if not player then return end
     local key = G.key_of_tile(G.tile_of(player.position))
@@ -101,15 +102,20 @@ function Commands.register()
       player.print("[SCL] Bad direction. Use: /scl-cond-add <entry> <exit> (N/E/S/W, no U-turn).")
       return
     end
+    -- Левый операнд: item-сигнал по имени, либо агрегат-вайлдкард each/any/everything.
+    local WILD = { each = "signal-each", any = "signal-anything", anything = "signal-anything",
+                   every = "signal-everything", everything = "signal-everything" }
     local cond = R.cond_add(node, entry, exit)
     if args[3] and args[4] and args[5] then
-      cond.signal = { type = "item", name = args[3] }
+      local w = WILD[args[3]:lower()]
+      cond.signal = w and { type = "virtual", name = w } or { type = "item", name = args[3] }
       cond.comparator = args[4]
       cond.constant = tonumber(args[5]) or 0
     end
     node.conditions_on = true  -- мастер-переключатель: иначе pick_exit условия игнорит
     local pred = cond.signal
-      and (" if item/" .. cond.signal.name .. " " .. cond.comparator .. " " .. cond.constant)
+      and (" if " .. cond.signal.type .. "/" .. cond.signal.name .. " " ..
+           cond.comparator .. " " .. cond.constant)
       or " (always)"
     player.print("[SCL] cond @ " .. key .. ": " .. entry .. "→" .. exit .. pred ..
       "  [#" .. #node.cond_lists[entry] .. " in " .. entry .. "]")

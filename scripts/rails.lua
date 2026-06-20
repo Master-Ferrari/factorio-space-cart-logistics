@@ -73,18 +73,36 @@ local function signal_val(signals, sig)
   return signals[(sig.type or "item") .. "/" .. sig.name] or 0
 end
 
+-- Виртуальные сигналы-агрегаты в ЛЕВОМ операнде (как у decider-комбинатора). Для
+-- булева гейта маршрута: "any" — истинно, если хоть один сигнал сети проходит предикат;
+-- "every" — если ВСЕ проходят (пустая сеть → истинно, «все из ничего»). У "signal-each"
+-- нет выходного сигнала, поэтому в булевом контексте он эквивалентен "anything".
+local WILDCARD = {
+  ["signal-anything"]   = "any",
+  ["signal-each"]       = "any",
+  ["signal-everything"] = "every",
+}
+
 local function cond_true(signals, cond)
   if not (cond and cond.signal and cond.signal.name) then return true end
   local f = CMP[cond.comparator or "="]
   if not f then return true end
-  local left = signal_val(signals, cond.signal)
   local right
   if cond.use_signal and cond.second_signal and cond.second_signal.name then
     right = signal_val(signals, cond.second_signal)
   else
     right = cond.constant or 0
   end
-  return f(left, right)
+  local mode = cond.signal.type == "virtual" and WILDCARD[cond.signal.name]
+  if mode then
+    for _, v in pairs(signals) do
+      local ok = f(v, right)
+      if mode == "any" and ok then return true end       -- нашёлся подходящий
+      if mode == "every" and not ok then return false end -- нашёлся НЕподходящий
+    end
+    return mode == "every"  -- any: ни один не подошёл (или пусто) → false; every → true
+  end
+  return f(signal_val(signals, cond.signal), right)
 end
 R.cond_true = cond_true
 
@@ -272,7 +290,7 @@ end
 function R.pick_exit(node, entry)
   local list = node.conditions_on and node.cond_lists and node.cond_lists[entry]
   if list and #list > 0 then
-    local signals = Circuit.read(node) or {}
+    local signals = Circuit.read_cached(node)
     for _, cond in ipairs(list) do
       local conn = G.CONN[entry][cond.exit]
       if conn and node.conns[conn] and cond_true(signals, cond) then
