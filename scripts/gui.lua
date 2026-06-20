@@ -13,6 +13,7 @@
 
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
+local Events = require("scripts.events")
 
 local GUI = {}
 
@@ -210,13 +211,17 @@ local function add_category_header(parent, entry, ci, count)
   del.style.padding = 0
 end
 
-local function add_cond_row(parent, entry, idx, cond, count)
+-- stale — выход условия выключен галочкой (CONN[entry][exit] не в eff_mask): маршрут
+-- такое условие игнорирует (node.conns-гейт в R.pick_exit), GUI гасит его предикат-
+-- виджеты. Реордер/удаление оставляем активными — стейл можно снять или переставить.
+local function add_cond_row(parent, entry, idx, cond, count, stale)
   local sfx = "-" .. entry .. "-" .. idx
   local row = row_card(parent, true)
   add_reorder(row, GUI.CN .. "up" .. sfx, GUI.CN .. "dn" .. sfx, idx > 1, idx < count)
 
   local icon = row.add{ type = "sprite",
-    sprite = "gofarovich-scl-dir-" .. entry .. "-" .. cond.exit }
+    sprite = "gofarovich-scl-dir-" .. entry .. "-" .. cond.exit,
+    tooltip = stale and { "gofarovich-scl-gui.cond-stale" } or nil }
   icon.style.width = 44
   icon.style.height = 44
   icon.style.stretch_image_to_widget_size = true
@@ -227,26 +232,31 @@ local function add_cond_row(parent, entry, idx, cond, count)
   local siga = row.add{ type = "choose-elem-button", name = GUI.CN .. "siga" .. sfx,
     elem_type = "signal", signal = cond.signal }
   siga.style.size = 44
+  siga.enabled = not stale
 
   local dd = row.add{ type = "drop-down", name = GUI.CN .. "cmp" .. sfx,
     items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
   dd.style.width = 50
   dd.style.height = 44
+  dd.enabled = not stale
 
   if cond.use_signal then
     local sigb = row.add{ type = "choose-elem-button", name = GUI.CN .. "sigb" .. sfx,
       elem_type = "signal", signal = cond.second_signal }
     sigb.style.size = 44
+    sigb.enabled = not stale
   else
     local c = row.add{ type = "button", name = GUI.CN .. "cst" .. sfx, style = "slot_button",
       caption = abbrev(cond.constant or 0), tooltip = tostring(cond.constant or 0) }
     c.style.size = 44
     c.style.font_color = { 1, 1, 1 }
+    c.enabled = not stale
   end
 
   local tog = row.add{ type = "sprite-button", name = GUI.CN .. "tog" .. sfx,
     style = "tool_button", sprite = "utility/change_recipe" }
   tog.style.size = 44
+  tog.enabled = not stale
 
   local del = row.add{ type = "sprite-button", name = GUI.CN .. "del" .. sfx,
     style = "dark_button", sprite = "utility/close",
@@ -280,7 +290,9 @@ local function add_conditions_panel(parent, node)
     add_category_header(inner, entry, ci, #cats)
     local list = node.cond_lists[entry]
     for i, cond in ipairs(list) do
-      add_cond_row(inner, entry, i, cond, #list)
+      local conn = G.CONN[entry][cond.exit]
+      local stale = not (conn and node.conns[conn])
+      add_cond_row(inner, entry, i, cond, #list, stale)
     end
   end
 
@@ -439,7 +451,7 @@ local function parse_cn(name)
 end
 
 function GUI.register_events()
-  script.on_event(defines.events.on_gui_opened, function(event)
+  Events.on(defines.events.on_gui_opened, function(event)
     if event.gui_type ~= defines.gui_type.entity then return end
     local e = event.entity
     if not (e and e.valid and e.name == G.RAIL) then return end
@@ -450,7 +462,7 @@ function GUI.register_events()
     if node then GUI.open(player, node) end
   end)
 
-  script.on_event(defines.events.on_gui_closed, function(event)
+  Events.on(defines.events.on_gui_closed, function(event)
     local el = event.element
     if not (el and el.valid) then return end
     local player = game.get_player(event.player_index)
@@ -463,7 +475,7 @@ function GUI.register_events()
     end
   end)
 
-  script.on_event(defines.events.on_gui_click, function(event)
+  Events.on(defines.events.on_gui_click, function(event)
     local el = event.element
     if not (el and el.valid) then return end
     local name = el.name
@@ -530,7 +542,7 @@ function GUI.register_events()
     end
   end)
 
-  script.on_event(defines.events.on_gui_checked_state_changed, function(event)
+  Events.on(defines.events.on_gui_checked_state_changed, function(event)
     local el = event.element
     if not (el and el.valid) then return end
     local node = open_node(event.player_index)
@@ -552,7 +564,7 @@ function GUI.register_events()
   end)
 
   -- Сигналы условий (left/right операнды) — без пересборки.
-  script.on_event(defines.events.on_gui_elem_changed, function(event)
+  Events.on(defines.events.on_gui_elem_changed, function(event)
     local el = event.element
     if not (el and el.valid) then return end
     local node = open_node(event.player_index)
@@ -566,7 +578,7 @@ function GUI.register_events()
   end)
 
   -- Оператор условия (drop-down).
-  script.on_event(defines.events.on_gui_selection_state_changed, function(event)
+  Events.on(defines.events.on_gui_selection_state_changed, function(event)
     local el = event.element
     if not (el and el.valid) then return end
     local node = open_node(event.player_index)
@@ -578,7 +590,7 @@ function GUI.register_events()
   end)
 
   -- Ползунок константы → синхронизируем поле и сохранённое значение.
-  script.on_event(defines.events.on_gui_value_changed, function(event)
+  Events.on(defines.events.on_gui_value_changed, function(event)
     local el = event.element
     if not (el and el.valid) or el.name ~= GUI.CONST_SLIDER then return end
     local v = math.floor(el.slider_value)
@@ -589,7 +601,7 @@ function GUI.register_events()
   end)
 
   -- Поле константы → сохранённое значение + ползунок. (имени условия больше нет)
-  script.on_event(defines.events.on_gui_text_changed, function(event)
+  Events.on(defines.events.on_gui_text_changed, function(event)
     local el = event.element
     if not (el and el.valid) or el.name ~= GUI.CONST_FIELD then return end
     local v = tonumber(el.text) or 0

@@ -1,6 +1,8 @@
 -- style_browser.lua — отладочный браузер GUI-стилей (независим от логики мода).
 -- /scl-style-browser — открыть/закрыть окно со всеми стилями из prototypes.style.
 
+local Events = require("scripts.events")
+
 local StyleBrowser = {}
 
 StyleBrowser.FRAME  = "gofarovich-scl-style-browser"
@@ -247,14 +249,14 @@ function StyleBrowser.register()
     end
   end)
 
-  script.on_event(defines.events.on_gui_click, function(event)
+  Events.on(defines.events.on_gui_click, function(event)
     local el = event.element
     if not (el and el.valid and el.name == StyleBrowser.CLOSE) then return end
     local player = game.get_player(event.player_index)
     if player then StyleBrowser.close(player) end
   end)
 
-  script.on_event(defines.events.on_gui_closed, function(event)
+  Events.on(defines.events.on_gui_closed, function(event)
     local el = event.element
     if el and el.valid and el.name == StyleBrowser.FRAME then
       local player = game.get_player(event.player_index)

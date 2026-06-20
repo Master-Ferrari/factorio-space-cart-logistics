@@ -5,6 +5,8 @@
 -- строки списка — отдельные frame в screen, позиционируются поверх scroll-pane.
 -- При on_gui_location_changed строка «прилипает» к ближайшему слоту и order обновляется.
 
+local Events = require("scripts.events")
+
 local ReorderDemo = {}
 
 ReorderDemo.FRAME      = "gofarovich-scl-reorder-demo"
@@ -277,14 +279,14 @@ function ReorderDemo.register()
     end
   end)
 
-  script.on_event(defines.events.on_gui_click, function(event)
+  Events.on(defines.events.on_gui_click, function(event)
     local el = event.element
     if not (el and el.valid and el.name == ReorderDemo.CLOSE) then return end
     local player = game.get_player(event.player_index)
     if player then ReorderDemo.close(player) end
   end)
 
-  script.on_event(defines.events.on_gui_closed, function(event)
+  Events.on(defines.events.on_gui_closed, function(event)
     local el = event.element
     if el and el.valid and el.name == ReorderDemo.FRAME then
       local player = game.get_player(event.player_index)
@@ -292,7 +294,7 @@ function ReorderDemo.register()
     end
   end)
 
-  script.on_event(defines.events.on_gui_location_changed, function(event)
+  Events.on(defines.events.on_gui_location_changed, function(event)
     local el = event.element
     if not (el and el.valid) then return end
     local player = game.get_player(event.player_index)
