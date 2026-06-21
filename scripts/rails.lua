@@ -70,7 +70,7 @@ local CMP = {
 
 local function signal_val(signals, sig)
   if not (sig and sig.name) then return 0 end
-  return signals[(sig.type or "item") .. "/" .. sig.name] or 0
+  return signals[Circuit.signal_key(sig)] or 0
 end
 
 -- Виртуальные сигналы-агрегаты в ЛЕВОМ операнде (как у decider-комбинатора). Для

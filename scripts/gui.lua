@@ -15,6 +15,7 @@ local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local Circuit = require("scripts.circuit")
 local Events = require("scripts.events")
+local SP = require("scripts.signal_picker")
 
 local GUI = {}
 
@@ -219,6 +220,25 @@ local function add_category_header(parent, entry, ci, count)
   del.style.padding = 0
 end
 
+-- Кнопка-слот сигнала: открывает наш пикер (scripts/signal_picker) вместо штатного
+-- choose-elem-button (тот не умеет each/any/everything и качество в нашем виде). Показывает
+-- спрайт сигнала + бейдж качества в углу (если не normal). name кодирует field-entry-idx.
+local function add_signal_slot(row, name, sig, enabled)
+  local tip = sig and (sig.name .. (sig.quality and (" [" .. sig.quality .. "]") or "")) or nil
+  local b = row.add{ type = "sprite-button", name = name, style = "slot_button",
+    sprite = SP.sprite_of(sig), tooltip = tip }
+  b.style.size = 44
+  b.enabled = enabled
+  if sig and sig.quality and sig.quality ~= "normal" then
+    local q = b.add{ type = "sprite", sprite = "quality/" .. sig.quality, ignored_by_interaction = true }
+    q.style.size = 14
+    q.style.left_margin = 28
+    q.style.top_margin = 28
+    q.style.stretch_image_to_widget_size = true
+  end
+  return b
+end
+
 -- stale — выход условия выключен галочкой (CONN[entry][exit] не в eff_mask): маршрут
 -- такое условие игнорирует (node.conns-гейт в R.pick_exit), GUI гасит его предикат-
 -- виджеты. Реордер/удаление оставляем активными — стейл можно снять или переставить.
@@ -237,10 +257,7 @@ local function add_cond_row(parent, entry, idx, cond, count, stale, lit)
   local spacer = row.add{ type = "empty-widget" }
   spacer.style.horizontally_stretchable = true
 
-  local siga = row.add{ type = "choose-elem-button", name = GUI.CN .. "siga" .. sfx,
-    elem_type = "signal", signal = cond.signal }
-  siga.style.size = 44
-  siga.enabled = not stale
+  add_signal_slot(row, GUI.CN .. "siga" .. sfx, cond.signal, not stale)
 
   local dd = row.add{ type = "drop-down", name = GUI.CN .. "cmp" .. sfx,
     items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
@@ -249,10 +266,7 @@ local function add_cond_row(parent, entry, idx, cond, count, stale, lit)
   dd.enabled = not stale
 
   if cond.use_signal then
-    local sigb = row.add{ type = "choose-elem-button", name = GUI.CN .. "sigb" .. sfx,
-      elem_type = "signal", signal = cond.second_signal }
-    sigb.style.size = 44
-    sigb.enabled = not stale
+    add_signal_slot(row, GUI.CN .. "sigb" .. sfx, cond.second_signal, not stale)
   else
     local c = row.add{ type = "button", name = GUI.CN .. "cst" .. sfx, style = "slot_button",
       caption = abbrev(cond.constant or 0), tooltip = tostring(cond.constant or 0) }
@@ -582,7 +596,16 @@ function GUI.register_events()
       if not field then return end
       local cond = R.cond_get(node, entry, idx)
       if not cond then return end
-      if field == "cst" then
+      if field == "siga" or field == "sigb" then
+        -- левый операнд (siga) — с вайлдкардами each/any/everything; правый (sigb) — без.
+        local left = (field == "siga")
+        SP.open(player, {
+          target = { key = G.key_of_tile(node.x, node.y), entry = entry, idx = idx,
+                     field = left and "signal" or "second_signal" },
+          allow_wildcards = left,
+          current = left and cond.signal or cond.second_signal,
+        })
+      elseif field == "cst" then
         open_const_popup(player, node, entry, idx)
       elseif field == "tog" then
         cond.use_signal = not cond.use_signal
@@ -621,18 +644,17 @@ function GUI.register_events()
     end
   end)
 
-  -- Сигналы условий (left/right операнды) — без пересборки.
-  Events.on(defines.events.on_gui_elem_changed, function(event)
-    local el = event.element
-    if not (el and el.valid) then return end
-    local node = open_node(event.player_index)
-    if not node then return end
-    local field, entry, idx = parse_cn(el.name)
-    if not field then return end
-    local cond = R.cond_get(node, entry, idx)
-    if not cond then return end
-    if field == "siga" then cond.signal = el.elem_value
-    elseif field == "sigb" then cond.second_signal = el.elem_value end
+  -- Операнды-сигналы выбираются нашим пикером (scripts/signal_picker), не choose-elem-
+  -- button, поэтому on_gui_elem_changed здесь больше не нужен. Пикер отдаёт результат сюда:
+  SP.register_events()
+  SP.set_on_pick(function(player, target, signal, changed)
+    local node = storage.rails[target.key]
+    if not (node and node.entity and node.entity.valid) then return end
+    if changed then
+      local cond = R.cond_get(node, target.entry, target.idx)
+      if cond then cond[target.field] = signal end  -- field = "signal" | "second_signal"
+    end
+    GUI.open(player, node)  -- переоткрыть GUI рельса (и после pick/none, и после cancel)
   end)
 
   -- Оператор условия (drop-down).

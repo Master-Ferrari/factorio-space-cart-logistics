@@ -174,3 +174,16 @@ data.raw["gui-style"].default["gofarovich-scl-cond-fulfilled-frame"] = {
 data:extend({ rail, rail_art, cart, rail_item, cart_item, reverse_input })
 data:extend(vp_sprites)
 data:extend(dir_sprites)
+
+
+-- -- Светлая карточка-строка в тёмном контейнере. Возвращает внутренний flow (центрирован).
+-- local function row_card(parent, indent, style)
+--   local box = parent.add{ type = "frame", style = style or FRAME_NORMAL }  -- фон опции/категории
+--   box.style.horizontally_stretchable = true
+--   if indent then box.style.left_margin = 16 end
+--   local row = box.add{ type = "flow", direction = "horizontal" }
+--   row.style.vertical_align = "center"
+--   row.style.horizontal_spacing = 4
+--   row.style.horizontally_stretchable = true
+--   return row
+-- end

@@ -4,20 +4,29 @@
 
 local Circuit = {}
 
+-- Единый ключ сигнала: type/name/quality. Сеть в 2.0 квалити-зависима (один и тот же
+-- item разных качеств — разные сигналы), поэтому качество входит в ключ. Дефолт —
+-- "normal" (типы без качества: fluid/virtual/recipe/... всегда "normal"). Один источник
+-- ключа на чтение цепи (read) и проверку условий (rails.signal_val) — чтобы не разъехались.
+function Circuit.signal_key(sig)
+  return (sig.type or "item") .. "/" .. sig.name .. "/" .. (sig.quality or "normal")
+end
+
 -- Прочитать объединённую (red+green) сеть рельса.
--- Возвращает { [type/name] = count } или nil, если сущности нет.
+-- Возвращает { [type/name/quality] = count } или nil, если сущности нет.
+-- ВАЖНО: читаем через entity.get_signals(red, green), а НЕ get_circuit_network().signals —
+-- последний схлопывает качество (legendary/normal сливаются), а get_signals квалити-aware
+-- (s.signal.quality = имя качества). get_signals уже мерджит оба коннектора.
 function Circuit.read(node)
   local comp = node and node.entity
   if not (comp and comp.valid) then return nil end
   local merged = {}
-  local wires = { defines.wire_connector_id.circuit_red, defines.wire_connector_id.circuit_green }
-  for _, wc in ipairs(wires) do
-    local net = comp.get_circuit_network(wc)
-    if net and net.signals then
-      for _, s in ipairs(net.signals) do
-        local key = (s.signal.type or "item") .. "/" .. s.signal.name
-        merged[key] = (merged[key] or 0) + s.count
-      end
+  local sigs = comp.get_signals(defines.wire_connector_id.circuit_red,
+                                defines.wire_connector_id.circuit_green)
+  if sigs then
+    for _, s in ipairs(sigs) do
+      local key = Circuit.signal_key(s.signal)
+      merged[key] = (merged[key] or 0) + s.count
     end
   end
   return merged
