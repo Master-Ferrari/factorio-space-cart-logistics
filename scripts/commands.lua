@@ -59,6 +59,33 @@ function Commands.register()
     player.print("[SCL] rails=" .. nr .. " carts=" .. nc .. " convoys=" .. nv)
   end)
 
+  -- Дамп спорных сигналов: virtual со special/hidden + всё с "parameter" в имени
+  -- (item/virtual). Нужен, чтобы построить точный фильтр пикера (blueprint-параметры
+  -- vs «жд вайлдкарты»). Пишет и в консоль, и в script-output/scl-signals-dump.txt.
+  commands.add_command("scl-dump-virtual", "Dump special/hidden/parameter signals", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local function fld(p, n) local ok, v = pcall(function() return p[n] end) if ok then return v end end
+    local lines = {}
+    local function scan(tbl, label)
+      for name, proto in pairs(prototypes[tbl] or {}) do
+        local sp, hd, par = fld(proto, "special"), fld(proto, "hidden"), fld(proto, "parameter")
+        if sp or hd or par or name:find("parameter") then
+          local sg = fld(proto, "subgroup")
+          lines[#lines + 1] = label .. "/" .. name .. "  special=" .. tostring(sp)
+            .. " hidden=" .. tostring(hd) .. " parameter=" .. tostring(par)
+            .. " subgroup=" .. tostring(sg and sg.name)
+        end
+      end
+    end
+    scan("virtual_signal", "virtual")
+    scan("item", "item")
+    table.sort(lines)
+    helpers.write_file("scl-signals-dump.txt", table.concat(lines, "\n"), false, cmd.player_index)
+    player.print("[SCL] dumped " .. #lines .. " signals → script-output/scl-signals-dump.txt")
+    for _, l in ipairs(lines) do player.print(l) end
+  end)
+
   -- Спайк M6: проверка чтения цепи. Примари-рельс — constant-combinator, провода
   -- цепляются прямо к нему. Печатает сигналы, которые видит рельс под игроком.
   commands.add_command("scl-circuit-read", "Print circuit signals seen by the rail under you", function(cmd)

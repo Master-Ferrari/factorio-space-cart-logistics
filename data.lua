@@ -161,29 +161,19 @@ local reverse_input = {
   linked_game_control = "rotate",
 }
 
--- Заливка выполненного условия: базовый decider_combinator_fulfilled_condition_frame
--- по умолчанию занимает минимальную ширину, а нам нужно поведение, идентичное
--- decider_combinator_frame (на всю доступную ширину карточки). Наследуем и форсим
--- горизонтальную растяжку — тогда «обычная» и «fulfilled» заливки равны по размеру.
-data.raw["gui-style"].default["gofarovich-scl-cond-fulfilled-frame"] = {
+-- Заливка выполненного условия. Ванильный decider_combinator_fulfilled_condition_frame
+-- несёт вшитую фиксированную ширину (width/natural_width), которую horizontally_stretchable
+-- не перебивает (явный width приоритетнее растяжки) — поэтому lit-карточка «отрывалась» от
+-- окна на свою ширину. Решение: наследуемся от той же базы, что и обычная карточка
+-- (decider_combinator_frame), и берём у fulfilled-стиля ТОЛЬКО зелёную рамку (graphical_set).
+-- Тогда геометрия обоих состояний идентична, меняется лишь обводка.
+local gstyle = data.raw["gui-style"].default
+gstyle["gofarovich-scl-cond-fulfilled-frame"] = {
   type = "frame_style",
-  parent = "decider_combinator_fulfilled_condition_frame",
-  horizontally_stretchable = "on",
+  parent = "decider_combinator_frame",
+  graphical_set = gstyle.decider_combinator_fulfilled_condition_frame.graphical_set,
 }
 
 data:extend({ rail, rail_art, cart, rail_item, cart_item, reverse_input })
 data:extend(vp_sprites)
 data:extend(dir_sprites)
-
-
--- -- Светлая карточка-строка в тёмном контейнере. Возвращает внутренний flow (центрирован).
--- local function row_card(parent, indent, style)
---   local box = parent.add{ type = "frame", style = style or FRAME_NORMAL }  -- фон опции/категории
---   box.style.horizontally_stretchable = true
---   if indent then box.style.left_margin = 16 end
---   local row = box.add{ type = "flow", direction = "horizontal" }
---   row.style.vertical_align = "center"
---   row.style.horizontal_spacing = 4
---   row.style.horizontally_stretchable = true
---   return row
--- end

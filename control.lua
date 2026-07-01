@@ -7,15 +7,16 @@
 --   circuit.lua  — чтение цепи примари-комбинатора.
 --   gui.lua      — окно тайла + роутинг on_gui_* событий.
 --   commands.lua — отладочные /scl-* команды.
---   style_browser.lua — браузер GUI-стилей (/scl-style-browser).
 --   reorder_demo.lua   — демо DnD-реордера (/scl-drag-reorder, нужен flib).
+-- Браузер GUI-стилей (/scl-style-browser) теперь живёт в gglib (__gglib__.style_browser).
 
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local C = require("scripts.convoys")
 local GUI = require("scripts.gui")
+local Events = require("scripts.events")
 local Commands = require("scripts.commands")
-local StyleBrowser = require("scripts.style_browser")
+local StyleBrowser = require("__gglib__.style_browser")
 local ReorderDemo = require("scripts.reorder_demo")
 
 local RAIL, CART = G.RAIL, G.CART
@@ -175,8 +176,12 @@ GUI.register_events()
 -- Отладочные /scl-* команды — в scripts/commands.lua.
 Commands.register()
 
--- Браузер GUI-стилей (независимый модуль) — /scl-style-browser.
-StyleBrowser.register()
+-- Браузер GUI-стилей — модуль gglib (__gglib__.style_browser), /scl-style-browser.
+-- gglib не регистрирует события сам — пробрасываем их через Events-мультиплексор.
+StyleBrowser.register_command("scl-style-browser")
+Events.on(defines.events.on_gui_click, function(e) StyleBrowser.on_click(e) end)
+Events.on(defines.events.on_gui_text_changed, function(e) StyleBrowser.on_text(e) end)
+Events.on(defines.events.on_gui_closed, function(e) StyleBrowser.on_closed(e) end)
 
 -- Демо DnD-реордера списка (flib titlebar handle) — /scl-drag-reorder.
 ReorderDemo.register()

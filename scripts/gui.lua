@@ -15,7 +15,9 @@ local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local Circuit = require("scripts.circuit")
 local Events = require("scripts.events")
-local SP = require("scripts.signal_picker")
+local SP = require("__gglib__.signal_picker")  -- общий пикер из мода-библиотеки gglib
+local SB = require("__gglib__.signal_button")  -- кнопка-слот операнда из gglib (открывает пикер)
+local CS = require("__gglib__.connection_status")  -- субхедер «к чему подключено» из gglib
 
 local GUI = {}
 
@@ -23,7 +25,7 @@ local GUI = {}
 -- карточки — «fulfilled»-рамка. Чтобы даже 1-тиковое срабатывание было заметно глазу,
 -- держим подсветку LIT_HOLD тиков после последнего «истинно» (латч в on_tick).
 local FRAME_NORMAL = "decider_combinator_frame"
-local FRAME_LIT    = "gofarovich-scl-cond-fulfilled-frame"  -- = fulfilled-рамка + растяжка (data.lua)
+local FRAME_LIT    = "gofarovich-scl-cond-fulfilled-frame"  -- decider_combinator_frame + зелёная рамка fulfilled (data.lua); растяжку даём поэлементно (row_card/apply_lit)
 local LIT_HOLD     = 30
 
 GUI.FRAME       = "gofarovich-scl-gui"
@@ -40,14 +42,7 @@ GUI.CN          = "gofarovich-scl-cn-"            -- условие: + <field>-<
 GUI.POPUP       = "gofarovich-scl-dirpopup"
 GUI.POPUP_CLOSE = "gofarovich-scl-dirpopup-close"
 GUI.DIRBTN      = "gofarovich-scl-dirbtn-"        -- + <entry>-<exit>
--- Поп-ап ввода константы
-GUI.CONST_POPUP  = "gofarovich-scl-const-popup"
-GUI.CONST_CLOSE  = "gofarovich-scl-const-close"
-GUI.CONST_SET    = "gofarovich-scl-const-set"
-GUI.CONST_FIELD  = "gofarovich-scl-const-field"
-GUI.CONST_SLIDER = "gofarovich-scl-const-slider"
-
-local CONST_MAX = 2147483647  -- int32; верх ползунка (поле может задать любое/негатив)
+-- Ввод константы переехал в подокно пикера (__gglib__/signal_picker, «Or set a constant»).
 
 -- Слои вьюпорта: база + цветной путь на соединение (порядок наложения = порядок битов).
 local VP_BASE   = "gofarovich-scl-vp-base"
@@ -76,23 +71,6 @@ local COMPARATORS = { "<", ">", "=", "≥", "≤", "≠" }
 local function cmp_index(c)
   for i, v in ipairs(COMPARATORS) do if v == c then return i end end
   return 3  -- "="
-end
-
--- Сокращение числа до ~3 значимых символов (43k, 1.7M) для кнопки-константы.
-local function abbrev(n)
-  n = n or 0
-  local a = math.abs(n)
-  if a < 1000 then return tostring(math.floor(n)) end
-  local sign = n < 0 and "-" or ""
-  local div, suf
-  if a < 1e6 then div, suf = 1e3, "k"
-  elseif a < 1e9 then div, suf = 1e6, "M"
-  else div, suf = 1e9, "G" end
-  local v = a / div
-  if v < 10 then
-    return sign .. string.format("%.1f", math.floor(v * 10) / 10) .. suf
-  end
-  return sign .. string.format("%.0f", v) .. suf
 end
 
 -- ── общие куски окна ────────────────────────────────────────────────
@@ -216,33 +194,30 @@ local function add_category_header(parent, entry, ci, count)
     style = "dark_button", sprite = "utility/close",
     tooltip = { "gofarovich-scl-gui.del-cat" } }
   del.style.width = 16
-  del.style.height = 44
+  del.style.height = 36
   del.style.padding = 0
 end
 
--- Кнопка-слот сигнала: открывает наш пикер (scripts/signal_picker) вместо штатного
--- choose-elem-button (тот не умеет each/any/everything и качество в нашем виде). Показывает
--- спрайт сигнала + бейдж качества в углу (если не normal). name кодирует field-entry-idx.
-local function add_signal_slot(row, name, sig, enabled)
-  local tip = sig and (sig.name .. (sig.quality and (" [" .. sig.quality .. "]") or "")) or nil
-  local b = row.add{ type = "sprite-button", name = name, style = "slot_button",
-    sprite = SP.sprite_of(sig), tooltip = tip }
-  b.style.size = 44
+-- Кнопка-слот операнда — виджет из gglib (__gglib__/signal_button): показывает сигнал
+-- (с бейджем качества) или константу и по клику открывает пикер. target кодирует, какое
+-- условие/поле редактируем (его gglib вернёт в SP.set_on_pick). Сама кнопка событий не
+-- регистрирует — клик прокидываем через SB.on_click в мультиплексоре событий.
+local function add_operand_slot(row, key, entry, idx, field, value, opts, enabled)
+  local b = SB.build(row, {
+    target = { key = key, entry = entry, idx = idx, field = field },
+    value = value,
+    size = 44,
+    allow_wildcards = opts.allow_wildcards,
+    allow_constant = opts.allow_constant,
+  })
   b.enabled = enabled
-  if sig and sig.quality and sig.quality ~= "normal" then
-    local q = b.add{ type = "sprite", sprite = "quality/" .. sig.quality, ignored_by_interaction = true }
-    q.style.size = 14
-    q.style.left_margin = 28
-    q.style.top_margin = 28
-    q.style.stretch_image_to_widget_size = true
-  end
   return b
 end
 
 -- stale — выход условия выключен галочкой (CONN[entry][exit] не в eff_mask): маршрут
 -- такое условие игнорирует (node.conns-гейт в R.pick_exit), GUI гасит его предикат-
 -- виджеты. Реордер/удаление оставляем активными — стейл можно снять или переставить.
-local function add_cond_row(parent, entry, idx, cond, count, stale, lit)
+local function add_cond_row(parent, key, entry, idx, cond, count, stale, lit)
   local sfx = "-" .. entry .. "-" .. idx
   local row = row_card(parent, true, lit and FRAME_LIT or FRAME_NORMAL)
   add_reorder(row, GUI.CN .. "up" .. sfx, GUI.CN .. "dn" .. sfx, idx > 1, idx < count)
@@ -257,7 +232,10 @@ local function add_cond_row(parent, entry, idx, cond, count, stale, lit)
   local spacer = row.add{ type = "empty-widget" }
   spacer.style.horizontally_stretchable = true
 
-  add_signal_slot(row, GUI.CN .. "siga" .. sfx, cond.signal, not stale)
+  -- siga (левый операнд): только сигнал, с вайлдкардами each/any/everything, без константы.
+  add_operand_slot(row, key, entry, idx, "siga",
+    { use_signal = true, signal = cond.signal },
+    { allow_wildcards = true, allow_constant = false }, not stale)
 
   local dd = row.add{ type = "drop-down", name = GUI.CN .. "cmp" .. sfx,
     items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
@@ -265,26 +243,17 @@ local function add_cond_row(parent, entry, idx, cond, count, stale, lit)
   dd.style.height = 44
   dd.enabled = not stale
 
-  if cond.use_signal then
-    add_signal_slot(row, GUI.CN .. "sigb" .. sfx, cond.second_signal, not stale)
-  else
-    local c = row.add{ type = "button", name = GUI.CN .. "cst" .. sfx, style = "slot_button",
-      caption = abbrev(cond.constant or 0), tooltip = tostring(cond.constant or 0) }
-    c.style.size = 44
-    c.style.font_color = { 1, 1, 1 }
-    c.enabled = not stale
-  end
-
-  local tog = row.add{ type = "sprite-button", name = GUI.CN .. "tog" .. sfx,
-    style = "tool_button", sprite = "utility/change_recipe" }
-  tog.style.size = 44
-  tog.enabled = not stale
+  -- Правый операнд: ОДИН слот — сигнал ИЛИ константа. Клик открывает пикер (в нём же
+  -- подокно «Or set a constant»). gglib сам рисует лицо слота — сигнал или число.
+  add_operand_slot(row, key, entry, idx, "sigb",
+    { use_signal = cond.use_signal, signal = cond.second_signal, constant = cond.constant },
+    { allow_wildcards = false, allow_constant = true }, not stale)
 
   local del = row.add{ type = "sprite-button", name = GUI.CN .. "del" .. sfx,
     style = "dark_button", sprite = "utility/close",
     tooltip = { "gofarovich-scl-gui.del-cond" } }
   del.style.width = 16
-  del.style.height = 44
+  del.style.height = 36
   del.style.padding = 0
 
   return row.parent  -- box-карточка (для живой смены заливки в on_tick)
@@ -296,6 +265,10 @@ local function add_conditions_panel(parent, node)
   local panel = parent.add{ type = "frame", style = "inside_shallow_frame", direction = "vertical" }
   panel.style.horizontally_stretchable = true
   panel.style.top_margin = 4
+
+  -- субхедер «к чему подключено» (gglib): один коннектор — читаем circuit_red/green,
+  -- как и Circuit.read. Растягивается на ширину панели.
+  CS.add(panel, node.entity, { mode = "single" })
 
   -- список — в scroll-pane с лимитом высоты: при переполнении появляется слайдер.
   local scroll = panel.add{ type = "scroll-pane", style = "decider_combinator_conditions_scroll_pane",
@@ -310,6 +283,7 @@ local function add_conditions_panel(parent, node)
   inner.style.horizontally_stretchable = true
 
   local signals = Circuit.read_cached(node)
+  local key = G.key_of_tile(node.x, node.y)  -- target для слотов-операндов gglib
   local rows = {}  -- {box, entry, idx, lit, lit_tick} — для живой подсветки в on_tick
   local cats = R.cat_order_list(node)
   for ci, entry in ipairs(cats) do
@@ -319,7 +293,7 @@ local function add_conditions_panel(parent, node)
       local conn = G.CONN[entry][cond.exit]
       local stale = not (conn and node.conns[conn])
       local lit = (not stale) and R.cond_true(signals, cond)
-      local box = add_cond_row(inner, entry, i, cond, #list, stale, lit)
+      local box = add_cond_row(inner, key, entry, i, cond, #list, stale, lit)
       rows[#rows + 1] = { box = box, entry = entry, idx = i,
         lit = lit, lit_tick = lit and game.tick or nil }
     end
@@ -385,44 +359,9 @@ local function open_popup(player, node)
   storage.gui_popup[player.index] = true
 end
 
--- ── поп-ап ввода константы (кнопка-слот → этот поп-ап) ──────────────
-local function close_const_popup(player)
-  local f = player.gui.screen[GUI.CONST_POPUP]
-  if f then f.destroy() end
-  if storage.gui_const then storage.gui_const[player.index] = nil end
-end
-
-local function open_const_popup(player, node, entry, idx)
-  close_const_popup(player)
-  storage.gui_const = storage.gui_const or {}
-  local cond = R.cond_get(node, entry, idx)
-  local val = (cond and cond.constant) or 0
-  storage.gui_const[player.index] = { entry = entry, idx = idx, value = val }
-
-  local f = player.gui.screen.add{ type = "frame", name = GUI.CONST_POPUP, direction = "vertical" }
-  add_titlebar(f, { "gofarovich-scl-gui.const-title" }, GUI.CONST_CLOSE)
-  local box = f.add{ type = "frame", style = "inside_shallow_frame_with_padding", direction = "vertical" }
-  local rowf = box.add{ type = "flow", direction = "horizontal" }  -- vertical_align — только на flow
-  rowf.style.vertical_align = "center"
-  rowf.style.horizontal_spacing = 8
-  local slider = rowf.add{ type = "slider", name = GUI.CONST_SLIDER,
-    minimum_value = 0, maximum_value = CONST_MAX, value_step = 1,
-    value = math.max(0, math.min(CONST_MAX, val)) }
-  slider.style.width = 220
-  local field = rowf.add{ type = "textfield", name = GUI.CONST_FIELD,
-    numeric = true, allow_decimal = false, allow_negative = true, text = tostring(val) }
-  field.style.width = 110
-  local set = f.add{ type = "button", name = GUI.CONST_SET,
-    caption = { "gofarovich-scl-gui.set-const" }, style = "confirm_button" }
-  set.style.horizontally_stretchable = true
-  set.style.top_margin = 6
-  f.auto_center = true
-end
-
 -- ── открыть/закрыть ─────────────────────────────────────────────────
 function GUI.close(player)
   close_popup(player)
-  close_const_popup(player)
   local frame = player.gui.screen[GUI.FRAME]
   if frame then frame.destroy() end
   if storage.gui_open then storage.gui_open[player.index] = nil end
@@ -431,7 +370,6 @@ end
 
 function GUI.open(player, node)
   close_popup(player)
-  close_const_popup(player)
   local old = player.gui.screen[GUI.FRAME]
   local loc = old and old.location
   if old then old.destroy() end
@@ -540,8 +478,6 @@ function GUI.register_events()
     local player = game.get_player(event.player_index)
     if el.name == GUI.POPUP then
       close_popup(player)
-    elseif el.name == GUI.CONST_POPUP then
-      close_const_popup(player)
     elseif el.name == GUI.FRAME then
       GUI.close(player)
     end
@@ -558,21 +494,10 @@ function GUI.register_events()
     elseif name == GUI.POPUP_CLOSE then
       close_popup(player)
       return
-    elseif name == GUI.CONST_CLOSE then
-      close_const_popup(player)
-      return
     end
     local node = open_node(event.player_index)
     if not node then return end
-    if name == GUI.CONST_SET then
-      local tgt = storage.gui_const and storage.gui_const[event.player_index]
-      if tgt then
-        local cond = R.cond_get(node, tgt.entry, tgt.idx)
-        if cond then cond.constant = math.floor(tgt.value or 0) end
-      end
-      close_const_popup(player)
-      GUI.open(player, node)
-    elseif name == GUI.NEWCOND then
+    if name == GUI.NEWCOND then
       open_popup(player, node)
     elseif name:sub(1, #GUI.DIRBTN) == GUI.DIRBTN then
       local entry, exit = name:sub(#GUI.DIRBTN + 1):match("^(%a)-(%a)$")
@@ -596,21 +521,9 @@ function GUI.register_events()
       if not field then return end
       local cond = R.cond_get(node, entry, idx)
       if not cond then return end
-      if field == "siga" or field == "sigb" then
-        -- левый операнд (siga) — с вайлдкардами each/any/everything; правый (sigb) — без.
-        local left = (field == "siga")
-        SP.open(player, {
-          target = { key = G.key_of_tile(node.x, node.y), entry = entry, idx = idx,
-                     field = left and "signal" or "second_signal" },
-          allow_wildcards = left,
-          current = left and cond.signal or cond.second_signal,
-        })
-      elseif field == "cst" then
-        open_const_popup(player, node, entry, idx)
-      elseif field == "tog" then
-        cond.use_signal = not cond.use_signal
-        GUI.open(player, node)
-      elseif field == "up" then
+      -- siga/sigb (слоты-операнды) обрабатывает SB.on_click из gglib в мультиплексоре —
+      -- сюда долетают только реордер/удаление условия.
+      if field == "up" then
         R.cond_move(node, entry, idx, -1)
         GUI.open(player, node)
       elseif field == "dn" then
@@ -644,15 +557,36 @@ function GUI.register_events()
     end
   end)
 
-  -- Операнды-сигналы выбираются нашим пикером (scripts/signal_picker), не choose-elem-
-  -- button, поэтому on_gui_elem_changed здесь больше не нужен. Пикер отдаёт результат сюда:
-  SP.register_events()
-  SP.set_on_pick(function(player, target, signal, changed)
+  -- Операнды-сигналы выбираются пикером из gglib (не choose-elem-button), поэтому
+  -- on_gui_elem_changed здесь не нужен. Пикер событий не регистрирует — зовём его хэндлеры
+  -- из наших через мультиплексор Events.on (сосуществуют с обработчиками GUI).
+  Events.on(defines.events.on_gui_click,         function(e) SB.on_click(e) end)
+  Events.on(defines.events.on_gui_click,         function(e) SP.on_click(e) end)
+  Events.on(defines.events.on_gui_text_changed,  function(e) SP.on_text(e) end)
+  Events.on(defines.events.on_gui_value_changed, function(e) SP.on_value(e) end)
+  Events.on(defines.events.on_gui_closed,        function(e) SP.on_closed(e) end)
+  -- result: { signal=SignalID } | { constant=N } | nil(очистить). changed=false → cancel.
+  SP.set_on_pick(function(player, target, result, changed)
     local node = storage.rails[target.key]
     if not (node and node.entity and node.entity.valid) then return end
     if changed then
       local cond = R.cond_get(node, target.entry, target.idx)
-      if cond then cond[target.field] = signal end  -- field = "signal" | "second_signal"
+      if cond then
+        if target.field == "siga" then
+          cond.signal = result and result.signal or nil  -- левый: только сигнал (или catch-all)
+        else  -- sigb — правый операнд: сигнал ИЛИ константа
+          if result and result.constant ~= nil then
+            cond.use_signal = false
+            cond.constant = math.floor(result.constant)
+          elseif result and result.signal then
+            cond.use_signal = true
+            cond.second_signal = result.signal
+          else  -- очистить → константа 0
+            cond.use_signal = false
+            cond.constant = 0
+          end
+        end
+      end
     end
     GUI.open(player, node)  -- переоткрыть GUI рельса (и после pick/none, и после cancel)
   end)
@@ -667,28 +601,6 @@ function GUI.register_events()
     if field ~= "cmp" then return end
     local cond = R.cond_get(node, entry, idx)
     if cond then cond.comparator = COMPARATORS[el.selected_index] end
-  end)
-
-  -- Ползунок константы → синхронизируем поле и сохранённое значение.
-  Events.on(defines.events.on_gui_value_changed, function(event)
-    local el = event.element
-    if not (el and el.valid) or el.name ~= GUI.CONST_SLIDER then return end
-    local v = math.floor(el.slider_value)
-    local gc = storage.gui_const and storage.gui_const[event.player_index]
-    if gc then gc.value = v end
-    local fld = el.parent[GUI.CONST_FIELD]
-    if fld then fld.text = tostring(v) end
-  end)
-
-  -- Поле константы → сохранённое значение + ползунок. (имени условия больше нет)
-  Events.on(defines.events.on_gui_text_changed, function(event)
-    local el = event.element
-    if not (el and el.valid) or el.name ~= GUI.CONST_FIELD then return end
-    local v = tonumber(el.text) or 0
-    local gc = storage.gui_const and storage.gui_const[event.player_index]
-    if gc then gc.value = v end
-    local sl = el.parent[GUI.CONST_SLIDER]
-    if sl then sl.slider_value = math.max(0, math.min(CONST_MAX, v)) end
   end)
 end
 
