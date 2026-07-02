@@ -408,6 +408,43 @@ function C.cart_unregister(entity)
   storage.carts[un] = nil
 end
 
+-- ── пересбор слоя кареток (rebuild_world / апдейт мода) ─────────────
+-- Согласовано ли текущее состояние кареток с геометрией storage.rails? При апдейте
+-- мода рельсы пересобираются из тех же мировых сущностей, поэтому обычно да — и тогда
+-- каретки НЕ трогаем (направление и составы сохраняются). false = старый формат
+-- storage, снесённый под кареткой рельс или новая каретка мира без записи → нужен
+-- полный пересбор через pick_start.
+function C.carts_consistent()
+  for _, cart in pairs(storage.carts) do
+    if cart.convoy then
+      local cur = cart.cursor
+      if not (cur and storage.rails[cur.tile] and cart.cells and cart.head and cart.tail) then
+        return false
+      end
+    end
+  end
+  for _, surface in pairs(game.surfaces) do
+    for _, e in pairs(surface.find_entities_filtered({ name = G.CART })) do
+      if not storage.carts[e.unit_number] then return false end
+    end
+  end
+  return true
+end
+
+-- Полный пересбор слоя кареток из сущностей мира. Направление берётся из pick_start
+-- (без учёта прежнего курса), поэтому вызывается только когда прежнее состояние
+-- несовместимо — иначе rebuild_world переносит состояние как есть.
+function C.rebuild_carts()
+  storage.convoys = {}
+  storage.carts = {}
+  storage.next_convoy_id = 1
+  for _, surface in pairs(game.surfaces) do
+    for _, e in pairs(surface.find_entities_filtered({ name = G.CART })) do
+      C.cart_register(e)
+    end
+  end
+end
+
 -- ── разворот одной каретки (R) ─────────────────────────────────────
 -- Противоположный facing (1..FACINGS): поворот на полкруга.
 local function opp_facing(f)

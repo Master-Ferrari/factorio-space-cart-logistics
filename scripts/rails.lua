@@ -281,6 +281,34 @@ function R.rail_remove(entity)
   end
 end
 
+-- ── blueprint / copy-paste: перенос ручных настроек тайла ───────────
+-- Персистентные поля тайла (геометрия/маршрут), которые НЕ выводятся из соседей —
+-- при копировании теряются, если не сохранить их в тегах blueprint-сущности.
+-- Одинокий скопированный рельс без соседей иначе даёт auto_mask 0 → прозрачный арт.
+function R.blueprint_tags(node)
+  return {
+    scl_mode = node.mode,
+    scl_manual_mask = node.manual_mask,
+    scl_conditions_on = node.conditions_on,
+    scl_cond_lists = node.cond_lists,
+    scl_cat_order = node.cat_order,
+    scl_read_next = node.read_next,
+  }
+end
+
+-- Заселить теги (event.tags при постройке из бпринта) в свежесозданный node и
+-- пересчитать геометрию. tags nil (обычная постройка) → ничего не делаем.
+function R.apply_blueprint_tags(node, tags)
+  if not (node and tags) then return end
+  if tags.scl_mode ~= nil then node.mode = tags.scl_mode end
+  if tags.scl_manual_mask ~= nil then node.manual_mask = tags.scl_manual_mask end
+  if tags.scl_conditions_on ~= nil then node.conditions_on = tags.scl_conditions_on end
+  if tags.scl_cond_lists ~= nil then node.cond_lists = tags.scl_cond_lists end
+  if tags.scl_cat_order ~= nil then node.cat_order = tags.scl_cat_order end
+  if tags.scl_read_next ~= nil then node.read_next = tags.scl_read_next end
+  R.rail_update(key_of(node))
+end
+
 -- Войдя со стороны entry, выбрать выход.
 -- 1) Если включён мастер-переключатель conditions_on — направленные условия входа
 --    (cond_lists[entry]) сверху вниз: первое условие, чей выход — включённый путь

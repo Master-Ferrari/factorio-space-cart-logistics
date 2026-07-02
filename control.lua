@@ -22,25 +22,54 @@ local ReorderDemo = require("scripts.reorder_demo")
 local RAIL, CART = G.RAIL, G.CART
 
 -- ── события постройки/удаления ─────────────────────────────────────
-local function on_built(event)
-  local e = event.entity or event.created_entity
-  if not (e and e.valid) then return end
-  if e.name == RAIL then
-    R.rail_add(e)
-  elseif e.name == CART then
-    C.cart_register(e)
-  end
-end
-
--- Всплывающее предупреждение игроку (если событие от игрока).
-local function warn_occupied(player_index)
+-- Всплывающее предупреждение игроку (если событие от игрока). key — суффикс в
+-- локали [gofarovich-scl-message].
+local function warn(player_index, key)
   if not player_index then return end
   local player = game.get_player(player_index)
   if player then
     player.create_local_flying_text({
-      text = { "gofarovich-scl-message.rail-occupied" },
+      text = { "gofarovich-scl-message." .. key },
       create_at_cursor = true,
     })
+  end
+end
+
+-- Отклонить только что поставленную сущность e: вернуть предмет источнику и снести.
+-- Игрок → mine_entity (предмет назад в инвентарь + снос); робот → предмет в его
+-- карго (унесёт назад); скрипт → молчаливый снос. Плюс warning игроку.
+local function reject_build(event, e, msg)
+  warn(event.player_index, msg)
+  local player = event.player_index and game.get_player(event.player_index)
+  if player then
+    player.mine_entity(e, true)
+  else
+    local robot = event.robot
+    local item = e.prototype.items_to_place_this[1]
+    if robot and robot.valid and item then
+      robot.get_inventory(defines.inventory.robot_cargo).insert(item)
+    end
+  end
+  if e.valid then e.destroy() end
+end
+
+local function on_built(event)
+  local e = event.entity or event.created_entity
+  if not (e and e.valid) then return end
+  if e.name == RAIL then
+    local key = G.key_of_tile(G.tile_of(e.position))
+    if storage.rails[key] then                 -- B3: тайл уже занят рельсом
+      reject_build(event, e, "tile-occupied")
+      return
+    end
+    R.rail_add(e)
+    R.apply_blueprint_tags(storage.rails[key], event.tags)  -- B2: настройки из бпринта
+  elseif e.name == CART then
+    if not storage.rails[G.key_of_tile(G.tile_of(e.position))] then  -- B1: нет рельса
+      reject_build(event, e, "cart-needs-rail")
+      return
+    end
+    C.cart_register(e)
   end
 end
 
@@ -48,15 +77,18 @@ local function on_removed(event)
   local e = event.entity
   if not (e and e.valid) then return end
   if e.name == RAIL then
+    -- Только сущность, которой владеет узел тайла. Дубль-комбинатор на том же тайле
+    -- (см. B3-отклонение через mine_entity) не должен снести оригинальный узел.
+    local node = storage.rails[G.key_of_tile(G.tile_of(e.position))]
+    if not node or node.entity ~= e then return end
     -- Запрет удаления рельса под кареткой. event.buffer есть только у добычи
     -- (игрок/робот) — у смерти/script_raised_destroy его нет, их не блокируем.
     if event.buffer then
       local tx, ty = G.tile_of(e.position)
       if C.tile_has_carts(tx, ty) then
         event.buffer.clear()  -- вернуть выкопанный предмет (его не отдаём)
-        local node = storage.rails[G.key_of_tile(tx, ty)]
-        if node then R.recreate_entity(node) end
-        warn_occupied(event.player_index)
+        R.recreate_entity(node)
+        warn(event.player_index, "rail-occupied")
         return
       end
     end
@@ -74,7 +106,31 @@ local function on_marked(event)
   local tx, ty = G.tile_of(e.position)
   if C.tile_has_carts(tx, ty) then
     e.cancel_deconstruction(e.force)
-    warn_occupied(event.player_index)
+    warn(event.player_index, "rail-occupied")
+  end
+end
+
+-- Blueprint / copy-paste: сохранить ручные настройки рельса в теги его сущности,
+-- иначе при копировании остаётся один прозрачный комбинатор (auto_mask 0 у одиночки).
+-- Ловим setup; при постройке из бпринта on_built заселяет теги (R.apply_blueprint_tags).
+local function get_blueprint(player)
+  local bp = player.blueprint_to_setup
+  if bp and bp.valid_for_read then return bp end
+  local cs = player.cursor_stack
+  if cs and cs.valid_for_read and cs.is_blueprint then return cs end
+  return nil
+end
+
+local function on_setup_blueprint(event)
+  local player = game.get_player(event.player_index)
+  if not (player and event.mapping and event.mapping.valid) then return end
+  local bp = get_blueprint(player)
+  if not bp then return end
+  for index, entity in pairs(event.mapping.get()) do
+    if entity.valid and entity.name == RAIL then
+      local node = storage.rails[G.key_of_tile(G.tile_of(entity.position))]
+      if node then bp.set_blueprint_entity_tags(index, R.blueprint_tags(node)) end
+    end
   end
 end
 
@@ -89,8 +145,10 @@ local function ensure_storage()
   storage.gui_live = storage.gui_live or {}    -- player.index -> { key, rows } (живая подсветка)
 end
 
--- Полная пересборка состояния из сущностей в мире.
--- Нужна при апдейте мода (старый формат storage может не иметь conns/mask).
+-- Пересборка рельсов из сущностей мира (при апдейте мода старый формат storage
+-- может не иметь conns/mask). Каретки переносятся как есть, если их состояние
+-- согласовано с новой геометрией (C.carts_consistent) — иначе пересобираются заново
+-- (C.rebuild_carts). Это сохраняет направление и составы кареток после апдейта.
 local function rebuild_world()
   -- сохраняем ручные настройки тайлов (геометрия + условия маршрута) по ключу —
   -- иначе апдейт мода (этот rebuild) их сбрасывал бы. Старый формат `conditions`
@@ -104,9 +162,6 @@ local function rebuild_world()
     }
   end
   storage.rails = {}
-  storage.convoys = {}
-  storage.carts = {}
-  storage.next_convoy_id = 1
   for _, surface in pairs(game.surfaces) do
     -- арт-сущности пересоздаём заново → снести существующие
     for _, e in pairs(surface.find_entities_filtered({ name = G.RAIL_ART })) do
@@ -126,11 +181,9 @@ local function rebuild_world()
     end
   end
   for key in pairs(storage.rails) do R.rail_update(key) end
-  for _, surface in pairs(game.surfaces) do
-    for _, e in pairs(surface.find_entities_filtered({ name = CART })) do
-      C.cart_register(e)
-    end
-  end
+  -- геометрия не изменилась → прежние курсоры/составы кареток валидны, оставляем как
+  -- есть (сохраняя направление). Пересобираем только несовместимое состояние.
+  if not C.carts_consistent() then C.rebuild_carts() end
 end
 
 script.on_init(ensure_storage)
@@ -153,6 +206,9 @@ script.on_event(defines.events.script_raised_destroy, on_removed, build_filter)
 -- Запрет деконструкции рельса под кареткой (фильтр — только наш рельс).
 script.on_event(defines.events.on_marked_for_deconstruction, on_marked,
   { { filter = "name", name = RAIL } })
+
+-- Сохранение ручных настроек рельса в теги при blueprint/copy-paste (B2).
+script.on_event(defines.events.on_player_setup_blueprint, on_setup_blueprint)
 
 script.on_event(defines.events.on_tick, function()
   C.on_tick()
