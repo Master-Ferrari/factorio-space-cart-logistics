@@ -2,11 +2,18 @@
 -- ключи координат, facing, генерация клеток сегментов (см. readme «бит → ячейка»
 -- и «Геометрия и дискретность»). Чистый модуль без обращения к storage.
 
+local RM = require("scripts.railmask")
+
 local G = {}
 
--- имена прототипов
-G.RAIL = "gofarovich-scl-rail"          -- примари: constant-combinator (выбор/провода/GUI)
-G.RAIL_ART = "gofarovich-scl-rail-art"  -- арт: simple-entity-with-owner (graphics_variation)
+-- имена прототипов. Рельс — семейство из 22 машин (класс маски × direction,
+-- контракт в railmask.lua); item один — G.RAIL_ITEM.
+G.RAIL_ITEM = "gofarovich-scl-rail"
+G.RAIL_LEGACY = "gofarovich-scl-rail"     -- стаб старого примари-комбинатора (миграция ≤0.5.x)
+G.RAIL_NAMES = RM.NAMES                   -- список имён (фильтры событий/find)
+G.IS_RAIL = RM.IS_RAIL                    -- [name] = true
+G.mask_of_entity = RM.mask_of_entity      -- (name, direction) → маска
+G.spec_of_mask = RM.spec_of_mask          -- маска → (name, direction)
 G.CART = "gofarovich-scl-cart"
 
 -- клеточные длины

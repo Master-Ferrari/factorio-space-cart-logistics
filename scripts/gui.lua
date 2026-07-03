@@ -1,5 +1,7 @@
 -- gui.lua — интерфейс тайла рельса (M6, направленная модель v2.4).
--- Открывается кликом по примари-рельсу (подавляем нативный combinator-GUI).
+-- Открывается кликом по рельсу — любому из 22 прототипов-машин (подавляем нативный
+-- GUI машины). Окно привязано к тайлу (pos_key), не к сущности: морф рельса под
+-- маску (v2.5) окно не закрывает — control дёргает GUI.refresh_key.
 --
 -- ОДНО окно (тащится нативно целиком): сверху панель «Cart rail» (вьюпорт активных
 -- путей + 3×3 галочки правки manual-маски + чекбоксы manual / conditions), СНИЗУ —
@@ -368,6 +370,27 @@ function GUI.close(player)
   if storage.gui_live then storage.gui_live[player.index] = nil end
 end
 
+-- Рефреш окон тайла key у всех игроков (хук R.on_geometry_changed из control.lua):
+-- морф сущности/смена маски перерисовывают вьюпорт и disabled-состояния; удаление
+-- тайла — закрывает окно. Само окно к сущности не привязано (player.opened = фрейм),
+-- так что без рефреша оно бы не исчезло, а показывало устаревшее.
+function GUI.refresh_key(key)
+  if not storage.gui_open then return end
+  for pi, k in pairs(storage.gui_open) do
+    if k == key then
+      local player = game.get_player(pi)
+      if player then
+        local node = storage.rails[key]
+        if node and node.entity and node.entity.valid then
+          GUI.open(player, node)
+        else
+          GUI.close(player)
+        end
+      end
+    end
+  end
+end
+
 function GUI.open(player, node)
   close_popup(player)
   local old = player.gui.screen[GUI.FRAME]
@@ -464,7 +487,7 @@ function GUI.register_events()
   Events.on(defines.events.on_gui_opened, function(event)
     if event.gui_type ~= defines.gui_type.entity then return end
     local e = event.entity
-    if not (e and e.valid and e.name == G.RAIL) then return end
+    if not (e and e.valid and G.IS_RAIL[e.name]) then return end
     local player = game.get_player(event.player_index)
     player.opened = nil
     local tx, ty = G.tile_of(e.position)

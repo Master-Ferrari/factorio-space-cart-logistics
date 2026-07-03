@@ -4,53 +4,101 @@
 -- только ради родного освещения/тени и существования в мире. Вся логика — в control.lua.
 
 local util = require("util")
+local RM = require("scripts.railmask")
 local GFX = "__space-cart-logistics__/graphics/"
 
--- РЕЛЬС = две сущности на одном тайле:
---  1) ПРИМАРИ (этот) — constant-combinator: то, что игрок ставит/майнит, выбирается
---     и к чему цепляются провода и GUI. Спрайт прозрачный. Комбинаторы НЕ умеют
---     graphics_variation (у них sprites=Sprite4Way), поэтому арт — на отдельной сущности.
---  2) АРТ (rail_art ниже) — simple-entity-with-owner с pictures(64) + graphics_variation,
---     невыбираемая; скрипт держит её на тайле и красит по маске.
-local rail = table.deepcopy(data.raw["constant-combinator"]["constant-combinator"])
-rail.name = "gofarovich-scl-rail"
-rail.icon = GFX .. "rail-icon.png"
-rail.icon_size = 64
-rail.next_upgrade = nil
-rail.fast_replaceable_group = nil
-rail.minable = { mining_time = 0.1, result = "gofarovich-scl-rail" }
-rail.collision_mask = { layers = {} }                       -- узлы графа могут лежать вплотную
-rail.collision_box = { { -0.49, -0.49 }, { 0.49, 0.49 } }
-rail.selection_box = { { -0.5, -0.5 }, { 0.5, 0.5 } }
-rail.flags = { "placeable-neutral", "player-creation", "not-upgradable" }
-rail.sprites = util.empty_sprite()                          -- невидим, арт рисует rail_art
-rail.activity_led_sprites = util.empty_sprite()
+-- РЕЛЬС = 22 прототипа assembling-machine — по классу масок на прототип, поворот
+-- внутри класса = direction (контракт в scripts/railmask.lua). Почему машина:
+--  * в 2.0 нативно wire-connectable (провода цепляются, GUI подавляем) и хранит
+--    direction в блюпринтах — блюпринты видимы и корректно поворачиваются;
+--  * арт — в integration_patch (Sprite4Way) на слое lower-object: лежит на земле,
+--    принимает тени зданий и всегда под каретками (комбинаторы так не умеют —
+--    их спрайты жёстко в object-слое, поверх теней и в y-сортировке с каретками);
+--  * крафтить ей нечего (пустая категория, void-энергия) — статус-иконок нет.
+-- Двухсущностная схема (примари-комбинатор + арт) выпилена в v2.5.
 
--- АРТ-сущность: невыбираемая, без коллизии. pictures = лист 64 вариаций (8×8).
--- В runtime rail_art.graphics_variation = mask+1 (контракт «бит → ячейка»). Вариация 1 = прозрачная.
-local rail_art = {
-  type = "simple-entity-with-owner",
-  name = "gofarovich-scl-rail-art",
-  icon = GFX .. "rail-icon.png",
-  icon_size = 64,
-  flags = { "placeable-off-grid", "not-on-map", "not-blueprintable", "not-deconstructable", "not-upgradable", "not-in-kill-statistics" },
-  max_health = 100,
-  selectable_in_game = false,
-  collision_mask = { layers = {} },
-  collision_box = { { -0.1, -0.1 }, { 0.1, 0.1 } },
-  render_layer = "lower-object", -- под кареткой
-  random_variation_on_create = false,
-  pictures = {
-    sheet = {
-      filename = GFX .. "rail.png",
-      width = 64,
-      height = 64,
-      line_length = 8,
-      variation_count = 64,
-      scale = 0.5,
+-- ячейка листа rail.png по маске (контракт «бит → ячейка»: 8×8, row-major)
+local function rail_cell(mask)
+  return {
+    filename = GFX .. "rail.png",
+    width = 64, height = 64,
+    x = (mask % 8) * 64,
+    y = math.floor(mask / 8) * 64,
+    scale = 0.5,
+  }
+end
+
+-- точка подключения проводов у центра тайла (спрайты пина не нужны)
+local function wire_point()
+  return {
+    points = {
+      wire   = { red = { -0.15, 0.15 }, green = { 0.15, 0.15 } },
+      shadow = { red = { -0.15, 0.15 }, green = { 0.15, 0.15 } },
     },
-  },
-}
+  }
+end
+
+-- Категория крафта без рецептов: машине-рельсу нельзя дать работу.
+local rail_category = { type = "recipe-category", name = "gofarovich-scl-none" }
+
+local rail_protos = {}
+for _, class in ipairs(RM.CLASSES) do
+  rail_protos[#rail_protos + 1] = {
+    type = "assembling-machine",
+    name = class.name,
+    localised_name = { "entity-name.gofarovich-scl-rail" },
+    localised_description = { "entity-description.gofarovich-scl-rail" },
+    icon = GFX .. "rail-icon.png",
+    icon_size = 64,
+    hidden = true,  -- 22 внутренних варианта не должны светиться в списках/педии
+    flags = { "placeable-neutral", "player-creation", "not-upgradable",
+              "no-automated-item-insertion", "hide-alt-info" },
+    minable = { mining_time = 0.1, result = "gofarovich-scl-rail" },
+    placeable_by = { item = "gofarovich-scl-rail", count = 1 },  -- Q-пипетка и призраки → один item
+    max_health = 100,
+    collision_mask = { layers = {} },                       -- узлы графа могут лежать вплотную
+    -- НАМЕРЕННО неквадратный box (0.49×0.48): квадратной 1×1-машине без fluid box
+    -- движок даёт supports_direction=false → direction не пишется вовсе (ни скриптом,
+    -- ни блюпринтом) и все рельсы рисуются north-артом. Асимметрия боксa + дроп-вектор
+    -- ниже делают машину направленной (как recycler: vector_to_place_result без
+    -- жидкостей). Маска коллизии пуста — на геймплей 0.01 не влияет.
+    collision_box = { { -0.49, -0.48 }, { 0.49, 0.48 } },
+    selection_box = { { -0.5, -0.5 }, { 0.5, 0.5 } },
+    -- Дроп-вектор результата крафта (2.0: crafting machines поддерживают). Крафта
+    -- нет никогда → инертен; нужен только чтобы движок счёл машину направленной.
+    vector_to_place_result = { 0, -0.2 },
+    crafting_categories = { "gofarovich-scl-none" },
+    crafting_speed = 1,
+    energy_usage = "1W",
+    energy_source = { type = "void" },
+    integration_patch_render_layer = "lower-object",  -- под тенями и каретками, как прежний арт
+    integration_patch = {
+      north = rail_cell(class.masks[0]),
+      east  = rail_cell(class.masks[1]),
+      south = rail_cell(class.masks[2]),
+      west  = rail_cell(class.masks[3]),
+    },
+    circuit_wire_max_distance = 9,
+    circuit_connector = { wire_point(), wire_point(), wire_point(), wire_point() },
+    -- Флип чертежа ремапить маску не умеет — зеркалирование запрещаем.
+    use_mirroring = false,
+  }
+end
+
+-- TEMP-стаб миграции (≤0.5.x): старый примари-комбинатор. Держит сущности старых
+-- сейвов живыми до rebuild_world (control.lua конвертирует их в машины с переносом
+-- проводов). Не размещается игроком. Удалить стаб после миграции сейвов.
+local rail_stub = table.deepcopy(data.raw["constant-combinator"]["constant-combinator"])
+rail_stub.name = "gofarovich-scl-rail"
+rail_stub.hidden = true
+rail_stub.minable = nil
+rail_stub.next_upgrade = nil
+rail_stub.fast_replaceable_group = nil
+rail_stub.collision_mask = { layers = {} }
+rail_stub.collision_box = { { -0.49, -0.49 }, { 0.49, 0.49 } }
+rail_stub.flags = { "placeable-neutral", "not-upgradable" }
+rail_stub.sprites = util.empty_sprite()
+rail_stub.activity_led_sprites = util.empty_sprite()
 
 -- Каретка: 32 кадра в pictures (variation). В runtime cart.graphics_variation = facing (1..32).
 -- НЕ задавать speed/direction — позиционируем только teleport-ом.
@@ -66,8 +114,8 @@ local cart = {
   collision_mask = { layers = {} },
   collision_box = { { -0.3, -0.3 }, { 0.3, 0.3 } },
   selection_box = { { -0.35, -0.35 }, { 0.35, 0.35 } },
-  -- Каретка всегда выбирается курсором поверх невидимого рельса-комбинатора
-  -- (у того дефолтные 50): иначе каретка на тайле «проваливается» под рельс.
+  -- Каретка всегда выбирается курсором поверх рельса (у того дефолтные 50):
+  -- иначе каретка на тайле «проваливается» под рельс.
   selection_priority = 60,
   minable = { mining_time = 0.1, result = "gofarovich-scl-cart" },
   random_variation_on_create = false,
@@ -84,15 +132,17 @@ local cart = {
   },
 }
 
+-- Один item на все 22 варианта. В руке ставит «крест» (маска 3 = N-S + E-W) —
+-- видимое превью; сразу после постройки скрипт морфит сущность под фактическую маску.
 local rail_item = {
   type = "item",
   name = "gofarovich-scl-rail",
-  icon = GFX .. "rail.png",
+  icon = GFX .. "rail-icon.png",
   icon_size = 64,
   subgroup = "belt",
   order = "z-scl-a[rail]",
   stack_size = 100,
-  place_result = "gofarovich-scl-rail",
+  place_result = RM.PREFIX .. "3",
 }
 
 local cart_item = {
@@ -174,6 +224,7 @@ gstyle["gofarovich-scl-cond-fulfilled-frame"] = {
   graphical_set = gstyle.decider_combinator_fulfilled_condition_frame.graphical_set,
 }
 
-data:extend({ rail, rail_art, cart, rail_item, cart_item, reverse_input })
+data:extend({ rail_category, rail_stub, cart, rail_item, cart_item, reverse_input })
+data:extend(rail_protos)
 data:extend(vp_sprites)
 data:extend(dir_sprites)

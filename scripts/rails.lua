@@ -1,30 +1,69 @@
--- rails.lua — граф рельс: соединения тайла (геометрия), битмаска, graphics_variation,
+-- rails.lua — граф рельс: соединения тайла (геометрия), битмаска, морф сущности,
 -- маршрут. Геометрия = галочки/соседи (eff_mask); куда поедет каретка — направленные
 -- условия входа (cond_lists), см. readme «Сигналы и условия (v2.4)».
--- storage.rails[key] = { x, y, entity(=примари комбинатор), art(=арт-сущность),
---   conns = {["N-S"]=true,...}, mask, eff_mask, mode, auto_mask, manual_mask,
---   conditions_on(bool), cond_lists = { [entry] = { {exit,...предикат}, ... } }, read_next }
+-- Рельс — ОДНА сущность на тайл (assembling-machine): маска кодируется парой
+-- (прототип, direction) по контракту railmask.lua. Смена маски = морф: внутри
+-- класса — запись direction, между классами — пересоздание с переносом проводов.
+-- storage.rails[key] = { x, y, entity, conns = {["N-S"]=true,...}, mask, eff_mask,
+--   mode, auto_mask, manual_mask, conditions_on(bool),
+--   cond_lists = { [entry] = { {exit,...предикат}, ... } }, read_next }
 
 local G = require("scripts.geometry")
 local Circuit = require("scripts.circuit")
 
 local R = {}
 
--- Создать/вернуть арт-сущность тайла (несёт graphics_variation).
-local function ensure_art(node)
-  if node.art and node.art.valid then return node.art end
-  if not (node.entity and node.entity.valid) then return nil end
-  node.art = node.entity.surface.create_entity({
-    name = G.RAIL_ART,
-    position = { x = node.x + 0.5, y = node.y + 0.5 },
-    force = node.entity.force,
-  })
-  return node.art
-end
-R.ensure_art = ensure_art
+-- Хук «геометрия/сущность тайла изменилась» (ставит control.lua): рефреш открытых
+-- GUI этого тайла. rails не может require gui — цикл.
+R.on_geometry_changed = nil
 
 local function key_of(node) return G.key_of_tile(node.x, node.y) end
 R.key_of = key_of
+
+-- ── провода: снимок/восстановление (морф, миграция, защита от майнинга) ─
+function R.snapshot_wires(e)
+  local saved = {}
+  for id, connector in pairs(e.get_wire_connectors(false)) do
+    for _, conn in pairs(connector.connections) do
+      saved[#saved + 1] = { id = id, target = conn.target }
+    end
+  end
+  return saved
+end
+
+function R.restore_wires(e, saved)
+  if not (e and e.valid) then return end
+  for _, s in ipairs(saved) do
+    if s.target and s.target.valid then
+      e.get_wire_connector(s.id, true).connect_to(s.target)
+    end
+  end
+end
+
+-- Привести сущность тайла к маске. Тот же класс → пишем direction; другой класс
+-- (или direction не применился) → пересоздание с переносом проводов.
+-- Возвращает true, если сущность реально менялась.
+local function apply_entity_mask(node, mask)
+  local e = node.entity
+  if not (e and e.valid) then return false end
+  if G.mask_of_entity(e.name, e.direction) == mask then return false end
+  local name, dir = G.spec_of_mask(mask)
+  if e.name == name then
+    e.direction = dir
+    if G.mask_of_entity(e.name, e.direction) == mask then return true end
+    -- движок не дал повернуть — фолбэк на пересоздание
+  end
+  local surface, position, force = e.surface, e.position, e.force
+  local wires = R.snapshot_wires(e)
+  e.destroy()
+  local new = surface.create_entity({
+    name = name, position = position, force = force, direction = dir,
+    create_build_effect_smoke = false,
+  })
+  R.restore_wires(new, wires)
+  node.entity = new
+  return true
+end
 
 -- Авто-маска тайла: соединяем все пары присутствующих сторон-соседей.
 local function compute_auto_mask(key)
@@ -191,17 +230,19 @@ end
 R.compute_eff = compute_eff
 
 -- Пересчёт тайла: auto_mask из соседей → eff_mask (manual переопределяет auto) →
--- conns/mask/арт. Условия здесь не участвуют (геометрия = галочки/соседи).
+-- conns/mask → морф сущности под маску. Условия здесь не участвуют (геометрия =
+-- галочки/соседи). При изменении дёргаем хук (рефреш открытых GUI).
 function R.rail_update(key)
   local node = storage.rails[key]
   if not node then return end
   node.auto_mask = compute_auto_mask(key)
   local eff = compute_eff(node)
+  local changed = eff ~= node.eff_mask
   node.eff_mask = eff
   node.mask = eff
   node.conns = conns_from_mask(eff)
-  local art = ensure_art(node)
-  if art then art.graphics_variation = eff + 1 end
+  local swapped = apply_entity_mask(node, eff)
+  if (changed or swapped) and R.on_geometry_changed then R.on_geometry_changed(key) end
 end
 
 -- ── правки из GUI (6b) ──────────────────────────────────────────────
@@ -227,29 +268,22 @@ function R.set_conn(node, conn, on)
   R.rail_update(key_of(node))
 end
 
--- Пересоздать примари-сущность тайла на том же месте, перенеся провода.
--- В Factorio нет события «отменить добычу», поэтому запрет удаления рельса
+-- Пересоздать сущность тайла на том же месте (тот же прототип/direction), перенеся
+-- провода. В Factorio нет события «отменить добычу», поэтому запрет удаления рельса
 -- (control.lua, когда на тайле каретка) реализуется так: предмет возвращаем,
--- а сущность создаём заново и репоинтим node.entity. Арт не трогаем — он
--- невыбираемый, добычей игрока не сносится.
+-- а сущность создаём заново и репоинтим node.entity (старую снесёт сам движок).
 function R.recreate_entity(node)
   local old = node.entity
   if not (old and old.valid) then return nil end
   local surface, position, force = old.surface, old.position, old.force
-  -- снимок проводных соединений старой сущности
-  local saved = {}
-  for id, connector in pairs(old.get_wire_connectors(false)) do
-    for _, conn in pairs(connector.connections) do
-      saved[#saved + 1] = { id = id, target = conn.target }
-    end
-  end
-  local new = surface.create_entity({ name = G.RAIL, position = position, force = force })
+  local name, dir = old.name, old.direction
+  local wires = R.snapshot_wires(old)
+  local new = surface.create_entity({
+    name = name, position = position, force = force, direction = dir,
+    create_build_effect_smoke = false,
+  })
   if not new then return nil end
-  for _, s in ipairs(saved) do
-    if s.target and s.target.valid then
-      new.get_wire_connector(s.id, true).connect_to(s.target)
-    end
-  end
+  R.restore_wires(new, wires)
   node.entity = new
   return new
 end
@@ -259,7 +293,7 @@ function R.rail_add(entity)
   local key = G.key_of_tile(tx, ty)
   if storage.rails[key] then return end
   storage.rails[key] = {
-    x = tx, y = ty, entity = entity, art = nil, conns = {}, mask = 0,
+    x = tx, y = ty, entity = entity, conns = {}, mask = 0,
     mode = "auto", manual_mask = nil, conditions_on = false, eff_mask = 0,
     cond_lists = {}, read_next = false,
   }
@@ -274,21 +308,23 @@ function R.rail_remove(entity)
   local key = G.key_of_tile(tx, ty)
   local node = storage.rails[key]
   if not node then return end
-  if node.art and node.art.valid then node.art.destroy() end
   storage.rails[key] = nil
   for _, side in ipairs(G.SIDES) do
     R.rail_update(G.neighbor_tile(key, side))
   end
+  if R.on_geometry_changed then R.on_geometry_changed(key) end  -- закрыть GUI тайла
 end
 
 -- ── blueprint / copy-paste: перенос ручных настроек тайла ───────────
--- Персистентные поля тайла (геометрия/маршрут), которые НЕ выводятся из соседей —
--- при копировании теряются, если не сохранить их в тегах blueprint-сущности.
--- Одинокий скопированный рельс без соседей иначе даёт auto_mask 0 → прозрачный арт.
+-- Геометрию блюпринт несёт САМ (прототип+direction сущности) — теги нужны только
+-- для полей, не выводимых из сущности/соседей: режим, условия, порядок категорий.
+-- scl_dir — direction сущности в момент снятия чертежа: при постройке повёрнутого
+-- чертежа по разнице направлений ремапим стороны в cond_lists/cat_order.
 function R.blueprint_tags(node)
+  local e = node.entity
   return {
+    scl_dir = (e and e.valid) and e.direction or 0,
     scl_mode = node.mode,
-    scl_manual_mask = node.manual_mask,
     scl_conditions_on = node.conditions_on,
     scl_cond_lists = node.cond_lists,
     scl_cat_order = node.cat_order,
@@ -296,15 +332,42 @@ function R.blueprint_tags(node)
   }
 end
 
--- Заселить теги (event.tags при постройке из бпринта) в свежесозданный node и
--- пересчитать геометрию. tags nil (обычная постройка) → ничего не делаем.
-function R.apply_blueprint_tags(node, tags)
+-- Заселить теги (event.tags при постройке из бпринта) в свежесозданный node.
+-- built_mask/built_dir — маска и direction сущности В МОМЕНТ ПОСТРОЙКИ (снятые до
+-- rail_add: auto-морф внутри него мог уже заменить сущность). tags nil → no-op.
+function R.apply_blueprint_tags(node, tags, built_mask, built_dir)
   if not (node and tags) then return end
+  local steps = 0
+  if tags.scl_dir and built_dir then
+    steps = math.floor(((built_dir - tags.scl_dir) % 16) / 4)
+  end
+  local function rot_side(side)
+    for _ = 1, steps do side = G.CW[side] end
+    return side
+  end
   if tags.scl_mode ~= nil then node.mode = tags.scl_mode end
-  if tags.scl_manual_mask ~= nil then node.manual_mask = tags.scl_manual_mask end
+  if node.mode == "manual" then
+    -- ручная маска = что нарисовано в чертеже; поворот чертежа уже учтён движком
+    node.manual_mask = built_mask or 0
+  end
   if tags.scl_conditions_on ~= nil then node.conditions_on = tags.scl_conditions_on end
-  if tags.scl_cond_lists ~= nil then node.cond_lists = tags.scl_cond_lists end
-  if tags.scl_cat_order ~= nil then node.cat_order = tags.scl_cat_order end
+  if tags.scl_cond_lists ~= nil then
+    local lists = {}
+    for entry, list in pairs(tags.scl_cond_lists) do
+      local out = {}
+      for i, cond in ipairs(list) do
+        cond.exit = rot_side(cond.exit)
+        out[i] = cond
+      end
+      lists[rot_side(entry)] = out
+    end
+    node.cond_lists = lists
+  end
+  if tags.scl_cat_order ~= nil then
+    local order = {}
+    for i, entry in ipairs(tags.scl_cat_order) do order[i] = rot_side(entry) end
+    node.cat_order = order
+  end
   if tags.scl_read_next ~= nil then node.read_next = tags.scl_read_next end
   R.rail_update(key_of(node))
 end

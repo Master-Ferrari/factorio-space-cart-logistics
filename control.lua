@@ -4,7 +4,7 @@
 --   geometry.lua — определения, координаты, сегменты клеток.
 --   rails.lua    — граф рельс, битмаска соединений, маршрут.
 --   convoys.lua  — клеточная модель движения (дек, оккупанси, on_tick).
---   circuit.lua  — чтение цепи примари-комбинатора.
+--   circuit.lua  — чтение цепи рельса (машина wire-connectable нативно).
 --   gui.lua      — окно тайла + роутинг on_gui_* событий.
 --   commands.lua — отладочные /scl-* команды.
 --   reorder_demo.lua   — демо DnD-реордера (/scl-drag-reorder, нужен flib).
@@ -19,7 +19,10 @@ local Commands = require("scripts.commands")
 local StyleBrowser = require("__gglib__.style_browser")
 local ReorderDemo = require("scripts.reorder_demo")
 
-local RAIL, CART = G.RAIL, G.CART
+local IS_RAIL, CART = G.IS_RAIL, G.CART
+
+-- Морф/удаление сущности тайла → рефреш (или закрытие) открытых GUI этого тайла.
+R.on_geometry_changed = function(key) GUI.refresh_key(key) end
 
 -- ── события постройки/удаления ─────────────────────────────────────
 -- Всплывающее предупреждение игроку (если событие от игрока). key — суффикс в
@@ -56,14 +59,17 @@ end
 local function on_built(event)
   local e = event.entity or event.created_entity
   if not (e and e.valid) then return end
-  if e.name == RAIL then
+  if IS_RAIL[e.name] then
     local key = G.key_of_tile(G.tile_of(e.position))
     if storage.rails[key] then                 -- B3: тайл уже занят рельсом
       reject_build(event, e, "tile-occupied")
       return
     end
+    -- маску/direction снимаем ДО rail_add: auto-морф внутри может заменить сущность
+    local built_mask = G.mask_of_entity(e.name, e.direction)
+    local built_dir = e.direction
     R.rail_add(e)
-    R.apply_blueprint_tags(storage.rails[key], event.tags)  -- B2: настройки из бпринта
+    R.apply_blueprint_tags(storage.rails[key], event.tags, built_mask, built_dir)  -- B2
   elseif e.name == CART then
     if not storage.rails[G.key_of_tile(G.tile_of(e.position))] then  -- B1: нет рельса
       reject_build(event, e, "cart-needs-rail")
@@ -76,7 +82,7 @@ end
 local function on_removed(event)
   local e = event.entity
   if not (e and e.valid) then return end
-  if e.name == RAIL then
+  if IS_RAIL[e.name] then
     -- Только сущность, которой владеет узел тайла. Дубль-комбинатор на том же тайле
     -- (см. B3-отклонение через mine_entity) не должен снести оригинальный узел.
     local node = storage.rails[G.key_of_tile(G.tile_of(e.position))]
@@ -102,7 +108,7 @@ end
 -- иначе робот бесконечно прилетал бы выкапывать, а on_removed его восстанавливал.
 local function on_marked(event)
   local e = event.entity
-  if not (e and e.valid) or e.name ~= RAIL then return end
+  if not (e and e.valid) or not IS_RAIL[e.name] then return end
   local tx, ty = G.tile_of(e.position)
   if C.tile_has_carts(tx, ty) then
     e.cancel_deconstruction(e.force)
@@ -110,9 +116,9 @@ local function on_marked(event)
   end
 end
 
--- Blueprint / copy-paste: сохранить ручные настройки рельса в теги его сущности,
--- иначе при копировании остаётся один прозрачный комбинатор (auto_mask 0 у одиночки).
--- Ловим setup; при постройке из бпринта on_built заселяет теги (R.apply_blueprint_tags).
+-- Blueprint / copy-paste: геометрию чертёж несёт сам (прототип+direction рельса),
+-- в теги пишем остальное — режим/условия/порядок категорий (R.blueprint_tags).
+-- При постройке из бпринта on_built заселяет теги (R.apply_blueprint_tags).
 local function get_blueprint(player)
   local bp = player.blueprint_to_setup
   if bp and bp.valid_for_read then return bp end
@@ -127,7 +133,7 @@ local function on_setup_blueprint(event)
   local bp = get_blueprint(player)
   if not bp then return end
   for index, entity in pairs(event.mapping.get()) do
-    if entity.valid and entity.name == RAIL then
+    if entity.valid and IS_RAIL[entity.name] then
       local node = storage.rails[G.key_of_tile(G.tile_of(entity.position))]
       if node then bp.set_blueprint_entity_tags(index, R.blueprint_tags(node)) end
     end
@@ -163,16 +169,25 @@ local function rebuild_world()
   end
   storage.rails = {}
   for _, surface in pairs(game.surfaces) do
-    -- арт-сущности пересоздаём заново → снести существующие
-    for _, e in pairs(surface.find_entities_filtered({ name = G.RAIL_ART })) do
+    -- миграция ≤0.5.x: примари-комбинатор (стаб в data.lua) → машина, с переносом
+    -- проводов. Маску подберёт rail_update ниже (manual persisted в saved).
+    -- Старые арт-сущности прототипа больше не имеют — их снёс сам движок при загрузке.
+    for _, e in pairs(surface.find_entities_filtered({ name = G.RAIL_LEGACY })) do
+      local pos, force = e.position, e.force
+      local wires = R.snapshot_wires(e)
       e.destroy()
+      local new = surface.create_entity({
+        name = G.spec_of_mask(0), position = pos, force = force,
+        create_build_effect_smoke = false,
+      })
+      R.restore_wires(new, wires)
     end
-    for _, e in pairs(surface.find_entities_filtered({ name = RAIL })) do
+    for _, e in pairs(surface.find_entities_filtered({ name = G.RAIL_NAMES })) do
       local tx, ty = G.tile_of(e.position)
       local key = G.key_of_tile(tx, ty)
       local s = saved[key]
       storage.rails[key] = {
-        x = tx, y = ty, entity = e, art = nil, conns = {}, mask = 0,
+        x = tx, y = ty, entity = e, conns = {}, mask = 0,
         mode = (s and s.mode) or "auto", manual_mask = s and s.manual_mask,
         conditions_on = (s and s.conditions_on) or false, eff_mask = 0,
         cond_lists = (s and s.cond_lists) or {}, cat_order = s and s.cat_order,
@@ -192,7 +207,14 @@ script.on_configuration_changed(function()
   rebuild_world()
 end)
 
-local build_filter = { { filter = "name", name = RAIL }, { filter = "name", name = CART } }
+-- Фильтры: 22 прототипа рельса (+ каретка для built/removed).
+local rail_filter = {}
+for _, n in ipairs(G.RAIL_NAMES) do
+  rail_filter[#rail_filter + 1] = { filter = "name", name = n }
+end
+local build_filter = { { filter = "name", name = CART } }
+for _, f in ipairs(rail_filter) do build_filter[#build_filter + 1] = f end
+
 script.on_event(defines.events.on_built_entity, on_built, build_filter)
 script.on_event(defines.events.on_robot_built_entity, on_built, build_filter)
 script.on_event(defines.events.script_raised_built, on_built, build_filter)
@@ -204,8 +226,16 @@ script.on_event(defines.events.on_entity_died, on_removed, build_filter)
 script.on_event(defines.events.script_raised_destroy, on_removed, build_filter)
 
 -- Запрет деконструкции рельса под кареткой (фильтр — только наш рельс).
-script.on_event(defines.events.on_marked_for_deconstruction, on_marked,
-  { { filter = "name", name = RAIL } })
+script.on_event(defines.events.on_marked_for_deconstruction, on_marked, rail_filter)
+
+-- Ручной поворот рельса (R) запрещён по дизайну: геометрию правят галочки GUI /
+-- авто-соседи. Машина при этом обязана быть направленной (direction — носитель
+-- маски внутри класса, см. data.lua), поэтому движок R разрешает — откатываем.
+script.on_event(defines.events.on_player_rotated_entity, function(event)
+  local e = event.entity
+  if not (e and e.valid and IS_RAIL[e.name]) then return end
+  e.direction = event.previous_direction
+end)
 
 -- Сохранение ручных настроек рельса в теги при blueprint/copy-paste (B2).
 script.on_event(defines.events.on_player_setup_blueprint, on_setup_blueprint)
