@@ -146,6 +146,7 @@ local function ensure_storage()
   storage.convoys = storage.convoys or {}
   storage.carts = storage.carts or {}
   storage.next_convoy_id = storage.next_convoy_id or 1
+  if not storage.occ then C.rebuild_occ() end  -- миграция: occ введена позже кареток
   storage.gui_open = storage.gui_open or {}    -- player.index -> rail tile key
   storage.gui_popup = storage.gui_popup or {}  -- player.index -> bool (Select direction открыт)
   storage.gui_live = storage.gui_live or {}    -- player.index -> { key, rows } (живая подсветка)

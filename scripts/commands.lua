@@ -45,6 +45,7 @@ function Commands.register()
     end
     storage.carts = {}
     storage.convoys = {}
+    storage.occ = {}
     storage.next_convoy_id = 1
     if player then player.print("[SCL] Removed " .. n .. " cart(s)") end
   end)

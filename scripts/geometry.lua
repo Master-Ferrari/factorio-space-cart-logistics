@@ -62,9 +62,12 @@ function G.neighbor_tile(key, side)
   return G.key_of_tile(tx + d[1], ty + d[2])
 end
 
--- клетки квантуем к сетке 1/32 для оккупанси
-function G.cellkey(c)
-  return math.floor(c.x * 32 + 0.5) .. "," .. math.floor(c.y * 32 + 0.5)
+-- клетки квантуем к сетке 1/32 для оккупанси. Ключ числовой (не строка): в горячем
+-- пути on_tick строковый ключ = аллокация+хеш на каждый вызов. Пакуем пару (x32,y32)
+-- в одно число: |координата| ≤ 2e6 тайлов (лимит карты) → |x32|,|y32| < 2^26, множитель
+-- 2^27 даёт инъективность, |ключ| < 2^53 — точно представим в double.
+function G.cellnum(c)
+  return math.floor(c.x * 32 + 0.5) * 134217728 + math.floor(c.y * 32 + 0.5)
 end
 
 -- число кадров поворота каретки (graphics_variation = facing 1..FACINGS)

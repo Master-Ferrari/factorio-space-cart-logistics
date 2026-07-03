@@ -5,6 +5,7 @@
 --                         каждая каретка ретрейсит СВОЙ след (свой дек CART_LEN клеток).
 --                         cursor = { tile, entry, exit, seg, i } — состояние головы каретки.
 --   storage.convoys[id] = { id, carts = { unit_number, ... } }  -- от головы к хвосту
+--   storage.occ[cellnum] = { [un] = refcount }  -- оккупанси, инкрементальная
 --   storage.next_convoy_id
 --
 -- Состав движется как целое: гейтит голова (встала → весь состав встал), при go едут все.
@@ -23,10 +24,6 @@ local function facing_close(a, b)
   local d = math.abs(a - b) % n
   if d > n / 2 then d = n - d end
   return d <= 1
-end
-
-local function head_cart(cv)
-  return storage.carts[cv.carts[1]]
 end
 
 local function tail_cart(cv)
@@ -61,6 +58,57 @@ local function next_head(cursor)
 end
 C.next_head = next_head
 
+-- ── оккупанси (персистентная, storage.occ) ─────────────────────────
+-- storage.occ[G.cellnum] = { [un] = refcount }. Живёт в storage и правится
+-- инкрементально: за тик у каретки меняются только head и tail, O(1) на каретку
+-- вместо пересборки O(CART_LEN·N) каждый тик. Рефкаунт, а не флаг: соседние
+-- клетки дека на повороте (шаг ~1/32) могут квантоваться в одну точку сетки.
+local function occ_add(occ, un, cell)
+  local k = G.cellnum(cell)
+  local m = occ[k]
+  if not m then m = {}; occ[k] = m end
+  m[un] = (m[un] or 0) + 1
+end
+
+local function occ_del(occ, un, cell)
+  local k = G.cellnum(cell)
+  local m = occ[k]
+  if not m then return end
+  local n = (m[un] or 0) - 1
+  if n > 0 then
+    m[un] = n
+  else
+    m[un] = nil
+    if next(m) == nil then occ[k] = nil end
+  end
+end
+
+-- Полный пересбор оккупанси из клеток кареток (миграция storage без occ / rebuild).
+function C.rebuild_occ()
+  local occ = {}
+  storage.occ = occ
+  for un, cart in pairs(storage.carts) do
+    if cart.convoy and cart.cells and cart.tail and cart.head then
+      for i = cart.tail, cart.head do occ_add(occ, un, cart.cells[i]) end
+    end
+  end
+end
+
+-- Мемо next_head на текущий тик: следующая клетка головы каретки нужна до трёх
+-- раз за тик (joins, splits, desired/движение) — считаем один раз. Курсоры внутри
+-- тика мутируют только в проходе движения (после всех чтений), кэш валиден.
+local nh_cache = {}
+local function nh(un, cart)
+  local v = nh_cache[un]
+  if v == nil then
+    local cell, ncur = next_head(cart.cursor)
+    v = cell and { cell, ncur } or false
+    nh_cache[un] = v
+  end
+  if v then return v[1], v[2] end
+  return nil
+end
+
 -- ── создание ───────────────────────────────────────────────────────
 -- Построить каретку-окно из CART_LEN клеток вдоль пути и состав-из-одного.
 function C.bootstrap_convoy(un, entity, startkey, entry, exit)
@@ -87,6 +135,10 @@ function C.bootstrap_convoy(un, entity, startkey, entry, exit)
     cursor = cursor,
   }
   storage.convoys[id] = { id = id, carts = { un } }
+  local occ = storage.occ
+  if occ then  -- nil (стейл-загрузка без config_changed) → ленивый rebuild в on_tick
+    for i = 1, head do occ_add(occ, un, cells[i]) end
+  end
   return id
 end
 
@@ -98,7 +150,11 @@ local function update_cart(cart)
   if center > cart.head then center = cart.head end
   local cell = cart.cells[center]
   if not cell then return end
-  cart.entity.teleport({ x = cell.x, y = cell.y })
+  -- телепорт — дорогой C-вызов; стоящий состав (гейт occupancy) стоит ноль
+  if cell.x ~= cart.px or cell.y ~= cart.py then
+    cart.entity.teleport({ x = cell.x, y = cell.y })
+    cart.px, cart.py = cell.x, cell.y
+  end
   if cart.facing ~= cell.facing then
     cart.facing = cell.facing
     cart.entity.graphics_variation = cell.facing
@@ -116,28 +172,29 @@ end
 -- ПРЕ-ПАСС: слияние составов, идущих бампер-в-бампер в одном направлении.
 -- A (сзади) вливается в B (спереди), если следующая клетка головы A == клетке
 -- хвоста B и направления совпадают. Порядок-независимо (по текущим позициям).
-local function do_joins()
+local function do_joins(ids)
   local convoys = storage.convoys
   local tailmap = {}
-  for _, id in ipairs(sorted_convoy_ids()) do
-    tailmap[G.cellkey(global_tail_cell(convoys[id]))] = id
+  for _, id in ipairs(ids) do
+    tailmap[G.cellnum(global_tail_cell(convoys[id]))] = id
   end
-  for _, id in ipairs(sorted_convoy_ids()) do
+  for _, id in ipairs(ids) do
     local A = convoys[id]
     if A then
-      local cell = next_head(head_cart(A).cursor)
+      local aun = A.carts[1]
+      local cell = nh(aun, storage.carts[aun])
       if cell then
-        local bid = tailmap[G.cellkey(cell)]
+        local bid = tailmap[G.cellnum(cell)]
         local B = bid and bid ~= id and convoys[bid]
         if B and facing_close(cell.facing, tail_cart(B).cells[tail_cart(B).tail].facing) then
-          local old_b_tail = G.cellkey(global_tail_cell(B))
+          local old_b_tail = G.cellnum(global_tail_cell(B))
           for _, un in ipairs(A.carts) do
             B.carts[#B.carts + 1] = un
             storage.carts[un].convoy = bid
           end
           convoys[id] = nil
           tailmap[old_b_tail] = nil
-          tailmap[G.cellkey(global_tail_cell(B))] = bid
+          tailmap[G.cellnum(global_tail_cell(B))] = bid
         end
       end
     end
@@ -151,8 +208,8 @@ end
 -- фронт»). Предикат — точная инверсия do_joins (next_head задней == хвост передней),
 -- поэтому раскол и слияние не осциллируют. Кольцо (замкнутая цепочка) не трогаем:
 -- проверяем только последовательные пары в списке, без замыкания.
-local function do_splits()
-  for _, id in ipairs(sorted_convoy_ids()) do
+local function do_splits(ids)
+  for _, id in ipairs(ids) do
     local cv = storage.convoys[id]
     if cv and #cv.carts > 1 then
       local groups = {}
@@ -160,10 +217,10 @@ local function do_splits()
       for k = 2, #cv.carts do
         local front = storage.carts[cv.carts[k - 1]]
         local back = storage.carts[cv.carts[k]]
-        local nb = next_head(back.cursor)
+        local nb = nh(cv.carts[k], back)
         local ftail = front.cells[front.tail]
         local linked = nb and ftail
-          and G.cellkey(nb) == G.cellkey(ftail)
+          and G.cellnum(nb) == G.cellnum(ftail)
           and facing_close(nb.facing, ftail.facing)
         if linked then
           cur[#cur + 1] = cv.carts[k]
@@ -184,22 +241,6 @@ local function do_splits()
       end
     end
   end
-end
-
--- оккупанси по клеткам: occ[cellkey][un] = index
-local function build_occ()
-  local occ = {}
-  for un, cart in pairs(storage.carts) do
-    if cart.cells and cart.convoy then
-      for i = cart.tail, cart.head do
-        local k = G.cellkey(cart.cells[i])
-        local m = occ[k]
-        if not m then m = {}; occ[k] = m end
-        m[un] = i
-      end
-    end
-  end
-  return occ
 end
 
 -- ── арбитраж перекрёстков (M5) ─────────────────────────────────────
@@ -239,22 +280,29 @@ function C.on_tick()
   local convoys = storage.convoys
   if not next(convoys) then return end
 
-  do_joins()
-  do_splits()   -- режем разошедшиеся составы ДО движения → у головы каждого свой гейт оккупанси
-
+  nh_cache = {}
   local ids = sorted_convoy_ids()
-  local occ = build_occ()
+  do_joins(ids)
+  do_splits(ids)   -- режем разошедшиеся составы ДО движения → у головы каждого свой гейт оккупанси
+
+  ids = sorted_convoy_ids()   -- сплиты создали новые id — они тоже едут в этом тике
+  -- occ может отсутствовать: reload_mods без бампа версии не даёт on_configuration_changed
+  local occ = storage.occ
+  if not occ then
+    C.rebuild_occ()
+    occ = storage.occ
+  end
 
   -- Пре-пасс: желаемая клетка головы каждого состава + разрешение конфликтов.
   -- Две и более голов на одну клетку в тик → едет один (ПДД), прочие уступают.
   local desired = {}   -- id -> { cell, ncur }
-  local groups = {}    -- cellkey -> { {id, side}, ... }
+  local groups = {}    -- cellnum -> { {id, side}, ... }
   for _, id in ipairs(ids) do
-    local head = storage.carts[convoys[id].carts[1]]
-    local cell, ncur = next_head(head.cursor)
+    local headun = convoys[id].carts[1]
+    local cell, ncur = nh(headun, storage.carts[headun])
     if cell then
       desired[id] = { cell = cell, ncur = ncur }
-      local k = G.cellkey(cell)
+      local k = G.cellnum(cell)
       local grp = groups[k]
       if not grp then grp = {}; groups[k] = grp end
       grp[#grp + 1] = { id = id, side = heading_side(cell.facing) }
@@ -277,13 +325,14 @@ function C.on_tick()
       local cell, ncur = desired[id].cell, desired[id].ncur
       local go = true
       do
-        local owners = occ[G.cellkey(cell)]
+        local ck = G.cellnum(cell)
+        local owners = occ[ck]
         if owners then
-          local gtk = G.cellkey(global_tail_cell(cv))
+          local gtk = G.cellnum(global_tail_cell(cv))
           for oun in pairs(owners) do
             if storage.carts[oun].convoy == id then
               -- своя клетка: допускаем только если это глобальный хвост (кольцо)
-              if G.cellkey(cell) ~= gtk then go = false end
+              if ck ~= gtk then go = false end
             else
               go = false   -- чужая клетка: ждём
             end
@@ -299,20 +348,16 @@ function C.on_tick()
           if un == headun then
             nc, ncur2 = cell, ncur
           else
-            nc, ncur2 = next_head(c.cursor)
+            nc, ncur2 = nh(un, c)
           end
           if nc then
-            local tk = G.cellkey(c.cells[c.tail])
-            if occ[tk] then occ[tk][un] = nil end
+            occ_del(occ, un, c.cells[c.tail])
             c.cells[c.tail] = nil
             c.tail = c.tail + 1
             c.head = c.head + 1
             c.cells[c.head] = nc
             c.cursor = ncur2
-            local nk = G.cellkey(nc)
-            local m = occ[nk]
-            if not m then m = {}; occ[nk] = m end
-            m[un] = c.head
+            occ_add(occ, un, nc)
           end
         end
       end
@@ -376,6 +421,12 @@ function C.cart_unregister(entity)
   local un = entity.unit_number
   if not un then return end
   local cart = storage.carts[un]
+  if cart and cart.cells and cart.tail and cart.head then
+    local occ = storage.occ
+    if occ then
+      for i = cart.tail, cart.head do occ_del(occ, un, cart.cells[i]) end
+    end
+  end
   if cart and cart.convoy then
     local cv = storage.convoys[cart.convoy]
     if cv then
@@ -437,6 +488,7 @@ end
 function C.rebuild_carts()
   storage.convoys = {}
   storage.carts = {}
+  storage.occ = {}
   storage.next_convoy_id = 1
   for _, surface in pairs(game.surfaces) do
     for _, e in pairs(surface.find_entities_filtered({ name = G.CART })) do
