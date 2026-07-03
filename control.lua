@@ -65,11 +65,11 @@ local function on_built(event)
       reject_build(event, e, "tile-occupied")
       return
     end
-    -- маску/direction снимаем ДО rail_add: auto-морф внутри может заменить сущность
-    local built_mask = G.mask_of_entity(e.name, e.direction)
-    local built_dir = e.direction
+    -- маску/direction/mirroring снимаем ДО rail_add: auto-морф внутри может заменить сущность
+    local built_mask = G.mask_of_entity(e.name, e.direction, e.mirroring)
+    local built_dir, built_mirror = e.direction, e.mirroring
     R.rail_add(e)
-    R.apply_blueprint_tags(storage.rails[key], event.tags, built_mask, built_dir)  -- B2
+    R.apply_blueprint_tags(storage.rails[key], event.tags, built_mask, built_dir, built_mirror)  -- B2
   elseif e.name == CART then
     if not storage.rails[G.key_of_tile(G.tile_of(e.position))] then  -- B1: нет рельса
       reject_build(event, e, "cart-needs-rail")
@@ -229,13 +229,20 @@ script.on_event(defines.events.script_raised_destroy, on_removed, build_filter)
 -- Запрет деконструкции рельса под кареткой (фильтр — только наш рельс).
 script.on_event(defines.events.on_marked_for_deconstruction, on_marked, rail_filter)
 
--- Ручной поворот рельса (R) запрещён по дизайну: геометрию правят галочки GUI /
--- авто-соседи. Машина при этом обязана быть направленной (direction — носитель
--- маски внутри класса, см. data.lua), поэтому движок R разрешает — откатываем.
+-- Ручные поворот (R) и флип (F/G) рельса В МИРЕ запрещены по дизайну: геометрию
+-- правят галочки GUI / авто-соседи (поворот чертежа — пожалуйста, там ремапится).
+-- Комбинатор направленный нативно, движок R разрешает — откатываем. Флип в мире
+-- комбинаторам движок не предлагает; хэндлер — страховка на смену базы.
 script.on_event(defines.events.on_player_rotated_entity, function(event)
   local e = event.entity
   if not (e and e.valid and IS_RAIL[e.name]) then return end
   e.direction = event.previous_direction
+end)
+
+script.on_event(defines.events.on_player_flipped_entity, function(event)
+  local e = event.entity
+  if not (e and e.valid and IS_RAIL[e.name]) then return end
+  e.mirroring = not e.mirroring
 end)
 
 -- Сохранение ручных настроек рельса в теги при blueprint/copy-paste (B2).

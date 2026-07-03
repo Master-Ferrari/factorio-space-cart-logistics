@@ -2,7 +2,7 @@
 -- Общий для data-стадии (генерация 22 прототипов рельса) и runtime (морф сущности).
 -- Чистый Lua: без storage/game.
 --
--- Рельс — один entity на тайл (assembling-machine, см. data.lua). 64 маски (6 бит,
+-- Рельс — один entity на тайл (constant-combinator, см. data.lua). 64 маски (6 бит,
 -- контракт «бит → ячейка» в readme) сжимаются поворотом на 90° в 22 класса-орбиты
 -- (Бёрнсайд: (64+4+16+4)/4). Класс = прототип, поворот внутри класса = direction
 -- (N/E/S/W = 0/4/8/12). Имя прототипа — по наименьшей маске орбиты (rep):
@@ -29,6 +29,21 @@ function M.rot_cw(mask, steps)
     mask = out
   end
   return mask
+end
+
+-- Зеркало по горизонтали (мир: x → -x): N-S/E-W на месте, N-E↔N-W, S-E↔S-W.
+-- У комбинаторов mirroring-бита нет (флип чертежей не поддержан, см. readme v2.6),
+-- но runtime остаётся mirroring-aware: заработает само при смене базы.
+local MIR = { [0] = 0, [1] = 1, [2] = 3, [3] = 2, [4] = 5, [5] = 4 }
+
+function M.hmirror(mask)
+  local out = 0
+  for b = 0, 5 do
+    if bit32.band(mask, bit32.lshift(1, b)) ~= 0 then
+      out = bit32.bor(out, bit32.lshift(1, MIR[b]))
+    end
+  end
+  return out
 end
 
 M.CLASSES = {}  -- массив { rep, name, masks = {[0..3] = маска при direction r*4} }
@@ -61,11 +76,14 @@ function M.spec_of_mask(mask)
   return s.name, s.dir
 end
 
--- (имя прототипа, direction) → маска; nil, если имя — не рельс
-function M.mask_of_entity(name, dir)
+-- (имя прототипа, direction, mirroring?) → маска; nil, если имя — не рельс.
+-- Состояние сущности = трансформ T = R^(dir/4) ∘ H^(mirroring) над rep-маской:
+-- сначала зеркало (локальное), потом поворот. У комбинатора mirroring всегда false.
+function M.mask_of_entity(name, dir, mirroring)
   local class = M.BY_NAME[name]
   if not class then return nil end
-  return class.masks[math.floor((dir % 16) / 4)]
+  local base = mirroring and M.hmirror(class.rep) or class.rep
+  return M.rot_cw(base, math.floor((dir % 16) / 4))
 end
 
 -- Самопроверка контракта (грошовая, гоняем на каждой загрузке обеих стадий).
@@ -75,6 +93,7 @@ do
     local s = M.BY_MASK[m]
     assert(s, "railmask: mask " .. m .. " not covered")
     assert(M.mask_of_entity(s.name, s.dir) == m, "railmask: roundtrip failed for mask " .. m)
+    assert(M.hmirror(M.hmirror(m)) == m, "railmask: hmirror not involutive for " .. m)
   end
 end
 

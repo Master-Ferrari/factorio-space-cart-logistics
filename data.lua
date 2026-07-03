@@ -7,14 +7,18 @@ local util = require("util")
 local RM = require("scripts.railmask")
 local GFX = "__space-cart-logistics__/graphics/"
 
--- РЕЛЬС = 22 прототипа assembling-machine — по классу масок на прототип, поворот
--- внутри класса = direction (контракт в scripts/railmask.lua). Почему машина:
---  * в 2.0 нативно wire-connectable (провода цепляются, GUI подавляем) и хранит
---    direction в блюпринтах — блюпринты видимы и корректно поворачиваются;
---  * арт — в integration_patch (Sprite4Way) на слое lower-object: лежит на земле,
---    принимает тени зданий и всегда под каретками (комбинаторы так не умеют —
---    их спрайты жёстко в object-слое, поверх теней и в y-сортировке с каретками);
---  * крафтить ей нечего (пустая категория, void-энергия) — статус-иконок нет.
+-- РЕЛЬС = 22 прототипа constant-combinator (v2.6) — по классу масок на прототип,
+-- поворот внутри класса = direction (контракт в scripts/railmask.lua):
+--  * комбинатор нативно wire-connectable и направленный (supports_direction без
+--    хаков → нет дроп-стрелки), direction хранится в блюпринтах;
+--  * арт — integration_patch (Sprite4Way): свойство EntityWithHealthPrototype,
+--    т.е. есть у ВСЕХ строимых, не только у машин; слой lower-object — арт лежит
+--    на земле, принимает тени зданий, каретки поверх;
+--  * не крафт-машина → нет статуса «работы» и сторонних модов-индикаторов.
+-- База assembling-machine (v2.5.x) отвергнута: неотъемлемый статус работы (на него
+-- реагируют чужие моды) и неубираемая стрелка vector_to_place_result.
+-- Флип чертежей НЕ поддержан: у комбинаторов нет mirroring-бита (и в 2.1 нет),
+-- флип хиральных уголков давал бы молча неверную маску (см. readme).
 -- Двухсущностная схема (примари-комбинатор + арт) выпилена в v2.5.
 
 -- ячейка листа rail.png по маске (контракт «бит → ячейка»: 8×8, row-major)
@@ -28,66 +32,47 @@ local function rail_cell(mask)
   }
 end
 
--- точка подключения проводов у центра тайла (спрайты пина не нужны)
-local function wire_point()
+-- Sprite4Way арта: north = ячейка base-маски, east/south/west = base, повёрнутый
+-- CW ×1/2/3 (движок ячейки не вертит — каждое направление берёт СВОЮ ячейку листа).
+local function rail_patch(base)
   return {
-    points = {
-      wire   = { red = { -0.15, 0.15 }, green = { 0.15, 0.15 } },
-      shadow = { red = { -0.15, 0.15 }, green = { 0.15, 0.15 } },
-    },
+    north = rail_cell(base),
+    east  = rail_cell(RM.rot_cw(base, 1)),
+    south = rail_cell(RM.rot_cw(base, 2)),
+    west  = rail_cell(RM.rot_cw(base, 3)),
   }
 end
-
--- Категория крафта без рецептов: машине-рельсу нельзя дать работу.
-local rail_category = { type = "recipe-category", name = "gofarovich-scl-none" }
 
 local rail_protos = {}
 for _, class in ipairs(RM.CLASSES) do
-  rail_protos[#rail_protos + 1] = {
-    type = "assembling-machine",
-    name = class.name,
-    localised_name = { "entity-name.gofarovich-scl-rail" },
-    localised_description = { "entity-description.gofarovich-scl-rail" },
-    icon = GFX .. "rail-icon.png",
-    icon_size = 64,
-    hidden = true,  -- 22 внутренних варианта не должны светиться в списках/педии
-    flags = { "placeable-neutral", "player-creation", "not-upgradable",
-              "no-automated-item-insertion", "hide-alt-info" },
-    minable = { mining_time = 0.1, result = "gofarovich-scl-rail" },
-    placeable_by = { item = "gofarovich-scl-rail", count = 1 },  -- Q-пипетка и призраки → один item
-    max_health = 100,
-    collision_mask = { layers = {} },                       -- узлы графа могут лежать вплотную
-    -- НАМЕРЕННО неквадратный box (0.49×0.48): квадратной 1×1-машине без fluid box
-    -- движок даёт supports_direction=false → direction не пишется вовсе (ни скриптом,
-    -- ни блюпринтом) и все рельсы рисуются north-артом. Асимметрия боксa + дроп-вектор
-    -- ниже делают машину направленной (как recycler: vector_to_place_result без
-    -- жидкостей). Маска коллизии пуста — на геймплей 0.01 не влияет.
-    collision_box = { { -0.49, -0.48 }, { 0.49, 0.48 } },
-    selection_box = { { -0.5, -0.5 }, { 0.5, 0.5 } },
-    -- Дроп-вектор результата крафта (2.0: crafting machines поддерживают). Крафта
-    -- нет никогда → инертен; нужен только чтобы движок счёл машину направленной.
-    vector_to_place_result = { 0, -0.2 },
-    crafting_categories = { "gofarovich-scl-none" },
-    crafting_speed = 1,
-    energy_usage = "1W",
-    energy_source = { type = "void" },
-    integration_patch_render_layer = "lower-object",  -- под тенями и каретками, как прежний арт
-    integration_patch = {
-      north = rail_cell(class.masks[0]),
-      east  = rail_cell(class.masks[1]),
-      south = rail_cell(class.masks[2]),
-      west  = rail_cell(class.masks[3]),
-    },
-    circuit_wire_max_distance = 9,
-    circuit_connector = { wire_point(), wire_point(), wire_point(), wire_point() },
-    -- Флип чертежа ремапить маску не умеет — зеркалирование запрещаем.
-    use_mirroring = false,
-  }
+  -- Клон ванильного constant-combinator: наследуем звуки, corpse, точки проводов.
+  local p = table.deepcopy(data.raw["constant-combinator"]["constant-combinator"])
+  p.name = class.name
+  p.localised_name = { "entity-name.gofarovich-scl-rail" }
+  p.localised_description = { "entity-description.gofarovich-scl-rail" }
+  p.icon = GFX .. "rail-icon.png"
+  p.icon_size = 64
+  p.hidden = true  -- 22 внутренних варианта не должны светиться в списках/педии
+  p.flags = { "placeable-neutral", "player-creation", "not-upgradable", "hide-alt-info" }
+  p.minable = { mining_time = 0.1, result = "gofarovich-scl-rail" }
+  p.placeable_by = { item = "gofarovich-scl-rail", count = 1 }  -- Q-пипетка и призраки → один item
+  p.max_health = 100
+  p.collision_mask = { layers = {} }                       -- узлы графа могут лежать вплотную
+  p.collision_box = { { -0.49, -0.49 }, { 0.49, 0.49 } }
+  p.selection_box = { { -0.5, -0.5 }, { 0.5, 0.5 } }
+  p.sprites = util.empty_sprite()                          -- сам комбинатор невидим
+  p.activity_led_sprites = util.empty_sprite()
+  p.next_upgrade = nil
+  p.fast_replaceable_group = nil
+  -- Арт: integration_patch на слое lower-object — на земле, под тенями и каретками.
+  p.integration_patch = rail_patch(class.rep)
+  p.integration_patch_render_layer = "lower-object"
+  rail_protos[#rail_protos + 1] = p
 end
 
 -- TEMP-стаб миграции (≤0.5.x): старый примари-комбинатор. Держит сущности старых
--- сейвов живыми до rebuild_world (control.lua конвертирует их в машины с переносом
--- проводов). Не размещается игроком. Удалить стаб после миграции сейвов.
+-- сейвов живыми до rebuild_world (control.lua конвертирует их в рельсы v2.6 с
+-- переносом проводов). Не размещается игроком. Удалить стаб после миграции сейвов.
 local rail_stub = table.deepcopy(data.raw["constant-combinator"]["constant-combinator"])
 rail_stub.name = "gofarovich-scl-rail"
 rail_stub.hidden = true
@@ -224,7 +209,7 @@ gstyle["gofarovich-scl-cond-fulfilled-frame"] = {
   graphical_set = gstyle.decider_combinator_fulfilled_condition_frame.graphical_set,
 }
 
-data:extend({ rail_category, rail_stub, cart, rail_item, cart_item, reverse_input })
+data:extend({ rail_stub, cart, rail_item, cart_item, reverse_input })
 data:extend(rail_protos)
 data:extend(vp_sprites)
 data:extend(dir_sprites)

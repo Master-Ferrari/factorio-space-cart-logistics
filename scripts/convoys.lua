@@ -276,14 +276,64 @@ local function pdd_winner(grp)
   return best.id
 end
 
-function C.on_tick()
-  local convoys = storage.convoys
-  if not next(convoys) then return end
+-- ── профилирование фаз on_tick (/scl-profile) ──────────────────────
+-- LuaProfiler несериализуем → живёт в локале модуля, не в storage. Команда-старт
+-- детерминированно исполняется на всех пирах, а сами тайминги client-local и
+-- только печатаются — состояние игры не трогают, десинка нет. Сейв/лоад посреди
+-- замера молча обнуляет prof (локал не переживает загрузку) — просто перезапустить.
+local prof = nil  -- { ticks, left, total, prep, joins, splits, desired, move, apply }
 
+function C.profile_start(n)
+  prof = {
+    ticks = n, left = n,
+    total = game.create_profiler(true),   prep = game.create_profiler(true),
+    joins = game.create_profiler(true),   splits = game.create_profiler(true),
+    desired = game.create_profiler(true), move = game.create_profiler(true),
+    apply = game.create_profiler(true),
+  }
+end
+
+local function prof_done(P)
+  local n = P.ticks
+  game.print("[SCL] on_tick profile, avg per tick over " .. n .. " tick(s):")
+  local function line(label, p)
+    p.divide(n)
+    game.print({ "", "[SCL]   ", label, " ", p })
+  end
+  line("total  ", P.total)
+  line("prep   ", P.prep)     -- сброс кэша + 2 сортировки id + occ-guard
+  line("joins  ", P.joins)
+  line("splits ", P.splits)
+  line("desired", P.desired)  -- пре-пасс желаемых клеток + арбитраж ПДД
+  line("move   ", P.move)     -- гейт оккупанси + сдвиг деков/курсоров
+  line("apply  ", P.apply)    -- update_cart: телепорты + graphics_variation
+end
+
+local function prof_tick(P)
+  P.left = P.left - 1
+  if P.left <= 0 then
+    prof = nil
+    prof_done(P)
+  end
+end
+
+function C.on_tick()
+  local P = prof
+  if P then P.total.restart() end
+  local convoys = storage.convoys
+  if not next(convoys) then
+    if P then P.total.stop(); prof_tick(P) end
+    return
+  end
+
+  if P then P.prep.restart() end
   nh_cache = {}
   local ids = sorted_convoy_ids()
+  if P then P.prep.stop(); P.joins.restart() end
   do_joins(ids)
+  if P then P.joins.stop(); P.splits.restart() end
   do_splits(ids)   -- режем разошедшиеся составы ДО движения → у головы каждого свой гейт оккупанси
+  if P then P.splits.stop(); P.prep.restart() end
 
   ids = sorted_convoy_ids()   -- сплиты создали новые id — они тоже едут в этом тике
   -- occ может отсутствовать: reload_mods без бампа версии не даёт on_configuration_changed
@@ -292,6 +342,7 @@ function C.on_tick()
     C.rebuild_occ()
     occ = storage.occ
   end
+  if P then P.prep.stop(); P.desired.restart() end
 
   -- Пре-пасс: желаемая клетка головы каждого состава + разрешение конфликтов.
   -- Две и более голов на одну клетку в тик → едет один (ПДД), прочие уступают.
@@ -317,6 +368,7 @@ function C.on_tick()
       end
     end
   end
+  if P then P.desired.stop(); P.move.restart() end
 
   for _, id in ipairs(ids) do
     local cv = convoys[id]
@@ -364,8 +416,14 @@ function C.on_tick()
     end
   end
 
+  if P then P.move.stop(); P.apply.restart() end
   for _, cart in pairs(storage.carts) do
     if cart.convoy then update_cart(cart) end
+  end
+  if P then
+    P.apply.stop()
+    P.total.stop()
+    prof_tick(P)
   end
 end
 

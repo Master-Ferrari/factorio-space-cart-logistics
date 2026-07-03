@@ -12,7 +12,7 @@ G.RAIL_ITEM = "gofarovich-scl-rail"
 G.RAIL_LEGACY = "gofarovich-scl-rail"     -- стаб старого примари-комбинатора (миграция ≤0.5.x)
 G.RAIL_NAMES = RM.NAMES                   -- список имён (фильтры событий/find)
 G.IS_RAIL = RM.IS_RAIL                    -- [name] = true
-G.mask_of_entity = RM.mask_of_entity      -- (name, direction) → маска
+G.mask_of_entity = RM.mask_of_entity      -- (name, direction, mirroring?) → маска
 G.spec_of_mask = RM.spec_of_mask          -- маска → (name, direction)
 G.CART = "gofarovich-scl-cart"
 

@@ -50,6 +50,16 @@ function Commands.register()
     if player then player.print("[SCL] Removed " .. n .. " cart(s)") end
   end)
 
+  -- Профиль фаз C.on_tick за N тиков (деф. 600 = 10 c). Итог печатается в консоль
+  -- всем: avg/тик по фазам prep/joins/splits/desired/move/apply + total.
+  commands.add_command("scl-profile", "Profile convoy on_tick phases for N ticks (default 600)", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local n = math.max(1, math.floor(tonumber(cmd.parameter) or 600))
+    C.profile_start(n)
+    player.print("[SCL] profiling on_tick for " .. n .. " tick(s)…")
+  end)
+
   commands.add_command("scl-stats", "Print rail/cart/convoy counts", function(cmd)
     local player = game.get_player(cmd.player_index)
     if not player then return end

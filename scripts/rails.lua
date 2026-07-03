@@ -1,7 +1,7 @@
 -- rails.lua — граф рельс: соединения тайла (геометрия), битмаска, морф сущности,
 -- маршрут. Геометрия = галочки/соседи (eff_mask); куда поедет каретка — направленные
 -- условия входа (cond_lists), см. readme «Сигналы и условия (v2.4)».
--- Рельс — ОДНА сущность на тайл (assembling-machine): маска кодируется парой
+-- Рельс — ОДНА сущность на тайл (constant-combinator): маска кодируется парой
 -- (прототип, direction) по контракту railmask.lua. Смена маски = морф: внутри
 -- класса — запись direction, между классами — пересоздание с переносом проводов.
 -- storage.rails[key] = { x, y, entity, conns = {["N-S"]=true,...}, mask, eff_mask,
@@ -40,17 +40,20 @@ function R.restore_wires(e, saved)
   end
 end
 
--- Привести сущность тайла к маске. Тот же класс → пишем direction; другой класс
--- (или direction не применился) → пересоздание с переносом проводов.
--- Возвращает true, если сущность реально менялась.
+-- Привести сущность тайла к маске. Маска сущности учитывает mirroring (флип
+-- чертежа): корректно отзеркаленная сущность живёт как есть, морф не нужен.
+-- Иначе: тот же класс → пишем direction (+сбрасываем зеркало — каноничная форма
+-- всегда без него); другой класс (или direction не применился) → пересоздание
+-- с переносом проводов. Возвращает true, если сущность реально менялась.
 local function apply_entity_mask(node, mask)
   local e = node.entity
   if not (e and e.valid) then return false end
-  if G.mask_of_entity(e.name, e.direction) == mask then return false end
+  if G.mask_of_entity(e.name, e.direction, e.mirroring) == mask then return false end
   local name, dir = G.spec_of_mask(mask)
   if e.name == name then
     e.direction = dir
-    if G.mask_of_entity(e.name, e.direction) == mask then return true end
+    if e.mirroring then e.mirroring = false end
+    if G.mask_of_entity(e.name, e.direction, e.mirroring) == mask then return true end
     -- движок не дал повернуть — фолбэк на пересоздание
   end
   local surface, position, force = e.surface, e.position, e.force
@@ -316,14 +319,17 @@ function R.rail_remove(entity)
 end
 
 -- ── blueprint / copy-paste: перенос ручных настроек тайла ───────────
--- Геометрию блюпринт несёт САМ (прототип+direction сущности) — теги нужны только
--- для полей, не выводимых из сущности/соседей: режим, условия, порядок категорий.
--- scl_dir — direction сущности в момент снятия чертежа: при постройке повёрнутого
--- чертежа по разнице направлений ремапим стороны в cond_lists/cat_order.
+-- Геометрию блюпринт несёт САМ (прототип + direction + mirroring сущности) — теги
+-- нужны только для полей, не выводимых из сущности/соседей: режим, условия, порядок
+-- категорий. scl_dir/scl_mirror — состояние сущности в момент снятия чертежа: при
+-- постройке повёрнутого/флипнутого чертежа ремапим стороны в cond_lists/cat_order
+-- трансформом D4 (поворот × зеркало).
 function R.blueprint_tags(node)
   local e = node.entity
+  local live = e and e.valid
   return {
-    scl_dir = (e and e.valid) and e.direction or 0,
+    scl_dir = live and e.direction or 0,
+    scl_mirror = (live and e.mirroring) or false,
     scl_mode = node.mode,
     scl_conditions_on = node.conditions_on,
     scl_cond_lists = node.cond_lists,
@@ -332,17 +338,24 @@ function R.blueprint_tags(node)
   }
 end
 
+local MIRROR_SIDE = { N = "N", S = "S", E = "W", W = "E" }
+
 -- Заселить теги (event.tags при постройке из бпринта) в свежесозданный node.
--- built_mask/built_dir — маска и direction сущности В МОМЕНТ ПОСТРОЙКИ (снятые до
--- rail_add: auto-морф внутри него мог уже заменить сущность). tags nil → no-op.
-function R.apply_blueprint_tags(node, tags, built_mask, built_dir)
+-- built_mask/built_dir/built_mirror — состояние сущности В МОМЕНТ ПОСТРОЙКИ (снятое
+-- до rail_add: auto-морф внутри него мог уже заменить сущность). tags nil → no-op.
+-- Ремап сторон: состояние сущности = трансформ T = R^k ∘ H^m над локальной рамкой;
+-- чертёжная манипуляция g = T1 ∘ T0⁻¹ применяется к мировым сторонам условий.
+function R.apply_blueprint_tags(node, tags, built_mask, built_dir, built_mirror)
   if not (node and tags) then return end
-  local steps = 0
-  if tags.scl_dir and built_dir then
-    steps = math.floor(((built_dir - tags.scl_dir) % 16) / 4)
-  end
+  local k0 = math.floor(((tags.scl_dir or 0) % 16) / 4)
+  local m0 = tags.scl_mirror or false
+  local k1 = math.floor(((built_dir or 0) % 16) / 4)
+  local m1 = built_mirror or false
   local function rot_side(side)
-    for _ = 1, steps do side = G.CW[side] end
+    for _ = 1, (4 - k0) % 4 do side = G.CW[side] end  -- R^{-k0}
+    if m0 then side = MIRROR_SIDE[side] end            -- H^{m0}  (T0⁻¹ = H∘R⁻ᵏ)
+    if m1 then side = MIRROR_SIDE[side] end            -- H^{m1}
+    for _ = 1, k1 do side = G.CW[side] end             -- R^{k1}  (T1 = R∘H)
     return side
   end
   if tags.scl_mode ~= nil then node.mode = tags.scl_mode end
