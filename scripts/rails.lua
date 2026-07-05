@@ -17,6 +17,10 @@ local R = {}
 -- GUI этого тайла. rails не может require gui — цикл.
 R.on_geometry_changed = nil
 
+-- Хук «тайл ушёл в блэкаут» (eff_mask стал 0; ставит control.lua): взрыв кареток
+-- на клетках тайла. rails не может require convoys — цикл (convoys require rails).
+R.on_blackout = nil
+
 local function key_of(node) return G.key_of_tile(node.x, node.y) end
 R.key_of = key_of
 
@@ -245,6 +249,10 @@ function R.rail_update(key)
   node.mask = eff
   node.conns = conns_from_mask(eff)
   local swapped = apply_entity_mask(node, eff)
+  -- Блэкаут: маска стала 0 (была ненулевой) → каретки на клетках тайла взрываются.
+  -- Строго по переходу: свежий одинокий рельс / rebuild_world стартуют с eff_mask=0
+  -- и сюда не попадают (changed=false).
+  if changed and eff == 0 and R.on_blackout then R.on_blackout(node) end
   if (changed or swapped) and R.on_geometry_changed then R.on_geometry_changed(key) end
 end
 

@@ -15,6 +15,7 @@ G.IS_RAIL = RM.IS_RAIL                    -- [name] = true
 G.mask_of_entity = RM.mask_of_entity      -- (name, direction, mirroring?) → маска
 G.spec_of_mask = RM.spec_of_mask          -- маска → (name, direction)
 G.CART = "gofarovich-scl-cart"
+G.CART_SLOTS = 4  -- слотов груза на каретку (скриптовый инвентарь, M7)
 
 -- клеточные длины
 G.CART_LEN = 32   -- физическая длина каретки (= прямой тайл)

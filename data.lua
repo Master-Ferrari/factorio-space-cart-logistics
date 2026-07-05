@@ -64,6 +64,10 @@ for _, class in ipairs(RM.CLASSES) do
   p.activity_led_sprites = util.empty_sprite()
   p.next_upgrade = nil
   p.fast_replaceable_group = nil
+  -- Копирование настроек (shift+ПКМ/ЛКМ) между рельсами РАЗНЫХ масок: нативно
+  -- вставка работает только в тот же прототип, а у нас их 22 — разрешаем все
+  -- (перенос наших данных — on_entity_settings_pasted в control.lua).
+  p.additional_pastable_entities = RM.NAMES
   -- Арт: integration_patch на слое lower-object — на земле, под тенями и каретками.
   p.integration_patch = rail_patch(class.rep)
   p.integration_patch_render_layer = "lower-object"
@@ -196,6 +200,35 @@ local reverse_input = {
   linked_game_control = "rotate",
 }
 
+-- Скрипт-копипаст настроек рельса: additional_pastable_entities обязан слать
+-- on_entity_settings_pasted и «несовместимым» парам, но между разными прототипами
+-- комбинатора вставка на практике не приходит (2.0.76); вдобавок нативный буфер
+-- копирования держит ССЫЛКУ на сущность и теряет её при морфе (пересоздание).
+-- Поэтому ловим штатные «скопировать/вставить настройки» (shift+ПКМ/ЛКМ, уважают
+-- переназначение) и переносим сами — control.lua.
+local copy_settings_input = {
+  type = "custom-input",
+  name = "gofarovich-scl-copy-settings",
+  key_sequence = "",
+  linked_game_control = "copy-entity-settings",
+}
+local paste_settings_input = {
+  type = "custom-input",
+  name = "gofarovich-scl-paste-settings",
+  key_sequence = "",
+  linked_game_control = "paste-entity-settings",
+}
+
+-- Груз каретки (M7): у simple-entity-with-owner нет своего GUI, поэтому ловим
+-- штатную «открыть» (E) и в control.lua открываем скриптовый инвентарь каретки
+-- под курсором (player.opened = LuaInventory → нативное окно со слотами).
+local open_cart_input = {
+  type = "custom-input",
+  name = "gofarovich-scl-open-cart",
+  key_sequence = "",
+  linked_game_control = "open-gui",
+}
+
 -- Заливка выполненного условия. Ванильный decider_combinator_fulfilled_condition_frame
 -- несёт вшитую фиксированную ширину (width/natural_width), которую horizontally_stretchable
 -- не перебивает (явный width приоритетнее растяжки) — поэтому lit-карточка «отрывалась» от
@@ -209,7 +242,8 @@ gstyle["gofarovich-scl-cond-fulfilled-frame"] = {
   graphical_set = gstyle.decider_combinator_fulfilled_condition_frame.graphical_set,
 }
 
-data:extend({ rail_stub, cart, rail_item, cart_item, reverse_input })
+data:extend({ rail_stub, cart, rail_item, cart_item, reverse_input, open_cart_input,
+              copy_settings_input, paste_settings_input })
 data:extend(rail_protos)
 data:extend(vp_sprites)
 data:extend(dir_sprites)

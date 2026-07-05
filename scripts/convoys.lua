@@ -427,21 +427,68 @@ function C.on_tick()
   end
 end
 
+-- Тело каретки занимает тайл (tx,ty)? Каретка без состава (нет следа) занимает
+-- тайл своей позиции.
+local function cart_on_tile(cart, tx, ty)
+  local cells, tail, head = cart.cells, cart.tail, cart.head
+  if cells and tail and head then
+    for i = tail, head do
+      local c = cells[i]
+      if c and math.floor(c.x) == tx and math.floor(c.y) == ty then return true end
+    end
+    return false
+  end
+  local e = cart.entity
+  if not (e and e.valid) then return false end
+  local ex, ey = G.tile_of(e.position)
+  return ex == tx and ey == ty
+end
+
 -- Есть ли хоть одна каретка, чьё тело занимает тайл (tx,ty)? Для запрета
 -- удаления рельса под кареткой (control.lua). Майнинг редок → скан по месту.
 function C.tile_has_carts(tx, ty)
   for _, cart in pairs(storage.carts) do
-    local cells, tail, head = cart.cells, cart.tail, cart.head
-    if cells and tail and head then
-      for i = tail, head do
-        local c = cells[i]
-        if c and math.floor(c.x) == tx and math.floor(c.y) == ty then
-          return true
-        end
-      end
-    end
+    if cart_on_tile(cart, tx, ty) then return true end
   end
   return false
+end
+
+-- Блэкаут тайла (eff_mask стал 0, хук R.on_blackout): каретки на его клетках
+-- взрываются — спавн взрыва + снос сущности + чистка состава (cart_unregister
+-- корректно раскалывает состав вокруг жертвы). Взрывается ВСЯ каретка, даже если
+-- на тайле лежит лишь часть её тела (спец «частичной смерти» нет по дизайну).
+-- Сначала собираем жертв, потом сносим: unregister мутирует storage.carts.
+-- destroy() событий не поднимает — снятие с учёта только здесь, вручную.
+function C.blackout_tile(tx, ty)
+  local victims = {}
+  for un, cart in pairs(storage.carts) do
+    if cart_on_tile(cart, tx, ty) then victims[#victims + 1] = un end
+  end
+  table.sort(victims)  -- фиксированный порядок сноса (мультиплеер)
+  for _, un in ipairs(victims) do
+    local cart = storage.carts[un]
+    local e = cart and cart.entity
+    if e and e.valid then
+      e.surface.create_entity({ name = "medium-explosion", position = e.position })
+      C.cart_unregister(e)
+      e.destroy()
+    end
+  end
+end
+
+-- ── груз каретки (M7) ──────────────────────────────────────────────
+-- Груз = скриптовый инвентарь (game.create_inventory): у simple-entity-with-owner
+-- своего инвентаря нет. LuaInventory сериализуем → живёт в storage.carts[un].inv,
+-- окно — нативное (player.opened = inv, control.lua). Инвентарь — суть каретки
+-- (как у вагона/сундука), создаётся сразу в cart_register; ленивое досоздание
+-- здесь — только миграция записей, созданных до модели груза.
+function C.cart_inventory(un)
+  local cart = storage.carts[un]
+  if not cart then return nil end
+  if not (cart.inv and cart.inv.valid) then
+    cart.inv = game.create_inventory(G.CART_SLOTS, { "entity-name." .. G.CART })
+  end
+  return cart.inv
 end
 
 -- ── регистрация каретки ────────────────────────────────────────────
@@ -465,20 +512,23 @@ function C.cart_register(entity)
   local node = storage.rails[key]
   if node then
     local entry, exit = pick_start(node)
-    if entry then
-      C.bootstrap_convoy(un, entity, key, entry, exit)
+    if entry and C.bootstrap_convoy(un, entity, key, entry, exit) then
+      C.cart_inventory(un)  -- груз — суть каретки, создаём сразу
       return
     end
   end
   -- нет рельса/соединений под кареткой — стоит на месте (без состава)
   storage.carts[un] = { entity = entity, convoy = nil }
+  C.cart_inventory(un)
 end
 
 -- При сносе члена состава раскалываем его на переднюю/заднюю части.
+-- Груз уничтожается вместе с кареткой (возврат добытчику — до вызова, control.lua).
 function C.cart_unregister(entity)
   local un = entity.unit_number
   if not un then return end
   local cart = storage.carts[un]
+  if cart and cart.inv and cart.inv.valid then cart.inv.destroy() end
   if cart and cart.cells and cart.tail and cart.head then
     local occ = storage.occ
     if occ then
@@ -544,6 +594,12 @@ end
 -- (без учёта прежнего курса), поэтому вызывается только когда прежнее состояние
 -- несовместимо — иначе rebuild_world переносит состояние как есть.
 function C.rebuild_carts()
+  -- груз переживает пересбор: скриптовые инвентари перепривязываем по unit_number
+  -- (сам LuaInventory живёт в игре, пока его не destroy — потерять ссылку = утечка)
+  local invs = {}
+  for un, cart in pairs(storage.carts) do
+    if cart.inv and cart.inv.valid then invs[un] = cart.inv end
+  end
   storage.convoys = {}
   storage.carts = {}
   storage.occ = {}
@@ -552,6 +608,10 @@ function C.rebuild_carts()
     for _, e in pairs(surface.find_entities_filtered({ name = G.CART })) do
       C.cart_register(e)
     end
+  end
+  for un, inv in pairs(invs) do
+    local cart = storage.carts[un]
+    if cart then cart.inv = inv else inv.destroy() end  -- сущности больше нет — груз в утиль
   end
 end
 

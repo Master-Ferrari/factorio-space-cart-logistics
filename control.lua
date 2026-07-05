@@ -10,6 +10,7 @@
 --   reorder_demo.lua   — демо DnD-реордера (/scl-drag-reorder, нужен flib).
 -- Браузер GUI-стилей (/scl-style-browser) теперь живёт в gglib (__gglib__.style_browser).
 
+local util = require("util")
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local C = require("scripts.convoys")
@@ -23,6 +24,10 @@ local IS_RAIL, CART = G.IS_RAIL, G.CART
 
 -- Морф/удаление сущности тайла → рефреш (или закрытие) открытых GUI этого тайла.
 R.on_geometry_changed = function(key) GUI.refresh_key(key) end
+
+-- Блэкаут: eff_mask тайла стал 0 (сняли все галочки / пропали соседи в auto) →
+-- каретки на клетках тайла взрываются. Привязан к геометрии, НЕ к условиям.
+R.on_blackout = function(node) C.blackout_tile(node.x, node.y) end
 
 -- ── события постройки/удаления ─────────────────────────────────────
 -- Всплывающее предупреждение игроку (если событие от игрока). key — суффикс в
@@ -71,7 +76,9 @@ local function on_built(event)
     R.rail_add(e)
     R.apply_blueprint_tags(storage.rails[key], event.tags, built_mask, built_dir, built_mirror)  -- B2
   elseif e.name == CART then
-    if not storage.rails[G.key_of_tile(G.tile_of(e.position))] then  -- B1: нет рельса
+    -- B1: нет рельса ИЛИ рельс без путей (eff_mask 0 — тайл невидим, ехать некуда)
+    local node = storage.rails[G.key_of_tile(G.tile_of(e.position))]
+    if not (node and node.eff_mask ~= 0) then
       reject_build(event, e, "cart-needs-rail")
       return
     end
@@ -100,6 +107,15 @@ local function on_removed(event)
     end
     R.rail_remove(e)
   elseif e.name == CART then
+    -- груз добытой каретки — добытчику (event.buffer есть только у добычи;
+    -- смерть/скрипт — груз гибнет вместе с кареткой в cart_unregister)
+    local cart = storage.carts[e.unit_number]
+    if event.buffer and cart and cart.inv and cart.inv.valid then
+      for i = 1, #cart.inv do
+        local stack = cart.inv[i]
+        if stack.valid_for_read then event.buffer.insert(stack) end
+      end
+    end
     C.cart_unregister(e)
   end
 end
@@ -114,6 +130,83 @@ local function on_marked(event)
     e.cancel_deconstruction(e.force)
     warn(event.player_index, "rail-occupied")
   end
+end
+
+-- Прямой клон (editor clone-area, B2-хвост): чертёжных тегов у клона нет — ручные
+-- настройки переносим напрямую из узла тайла-источника. Клон не поворачивает и не
+-- зеркалит → D4-ремап сторон не нужен, direction сущность несёт сама. Отклонения
+-- (занятый тайл, каретка без рельса) — молчаливый снос: игрока-виновника у клона нет.
+local function on_cloned(event)
+  local src, dst = event.source, event.destination
+  if not (dst and dst.valid) then return end
+  if IS_RAIL[dst.name] then
+    local key = G.key_of_tile(G.tile_of(dst.position))
+    if storage.rails[key] then dst.destroy(); return end   -- B3: тайл уже занят
+    R.rail_add(dst)
+    local node = storage.rails[key]
+    local snode = src and src.valid
+      and storage.rails[G.key_of_tile(G.tile_of(src.position))]
+    if node and snode then
+      node.mode = snode.mode
+      node.manual_mask = snode.manual_mask
+      node.conditions_on = snode.conditions_on
+      node.cond_lists = util.table.deepcopy(snode.cond_lists) or {}
+      node.cat_order = util.table.deepcopy(snode.cat_order)
+      node.read_next = snode.read_next
+      R.rail_update(key)
+    end
+  elseif dst.name == CART then
+    local node = storage.rails[G.key_of_tile(G.tile_of(dst.position))]
+    if not (node and node.eff_mask ~= 0) then
+      dst.destroy()                                        -- B1: нет рельса/путей
+      return
+    end
+    C.cart_register(dst)  -- след/курс не клонируются — свежий старт через pick_start
+    -- груз клонируем послотово (LuaInventory один на каретку, у клона — свой)
+    local scart = src and src.valid and storage.carts[src.unit_number]
+    if scart and scart.inv and scart.inv.valid then
+      local dinv = C.cart_inventory(dst.unit_number)
+      if dinv then
+        for i = 1, #dinv do dinv[i].set_stack(scart.inv[i]) end
+      end
+    end
+  end
+end
+
+-- Копирование настроек рельса (shift+ПКМ пример → shift+ЛКМ вставка): переносим
+-- ПОЛЬЗОВАТЕЛЬСКИЙ ВВОД целиком — режим (auto→auto, manual→manual), галочки путей
+-- (manual_mask) и условия. НЕ переносим только вычисленное состояние (eff_mask /
+-- морф сущности): цель пересчитывает своё — в auto маска из ЕЁ соседей. Стороны в
+-- manual_mask/cond_lists мировые (N/E/S/W), не относительно direction → ремап не нужен.
+-- ДВА пути доставки (перенос идемпотентен, дубль безвреден):
+--  * нативный on_entity_settings_pasted — между одинаковыми прототипами; между
+--    разными additional_pastable_entities (data.lua) обязан слать событие, но на
+--    практике (2.0.76) вставка не приходит, к тому же нативный буфер держит ссылку
+--    на сущность и умирает при морфе рельса (пересоздание);
+--  * свои linked-инпуты copy/paste-entity-settings: источник помним КЛЮЧОМ ТАЙЛА
+--    (storage.copy_rail[player.index]) — переживает морф и работает между любыми
+--    из 22 прототипов. Копирование НЕ-рельса сбрасывает источник (буфер занят другим).
+local function paste_rail_settings(snode, dkey)
+  local dnode = storage.rails[dkey]
+  if not (snode and dnode) or snode == dnode then return end
+  dnode.mode = snode.mode
+  if snode.mode == "manual" then
+    dnode.manual_mask = snode.manual_mask or 0  -- галочки путей источника как есть
+  end
+  dnode.conditions_on = snode.conditions_on
+  dnode.cond_lists = util.table.deepcopy(snode.cond_lists) or {}
+  dnode.cat_order = util.table.deepcopy(snode.cat_order)
+  dnode.read_next = snode.read_next
+  R.rail_update(dkey)    -- пересчёт eff_mask + морф (+ блэкаут, если вставили пусто)
+  GUI.refresh_key(dkey)  -- rail_update дёргает хук лишь при смене геометрии, условия — нет
+end
+
+local function on_settings_pasted(event)
+  local src, dst = event.source, event.destination
+  if not (src and src.valid and dst and dst.valid
+          and IS_RAIL[src.name] and IS_RAIL[dst.name]) then return end
+  local snode = storage.rails[G.key_of_tile(G.tile_of(src.position))]
+  paste_rail_settings(snode, G.key_of_tile(G.tile_of(dst.position)))
 end
 
 -- Blueprint / copy-paste: геометрию чертёж несёт сам (прототип+direction рельса),
@@ -150,6 +243,8 @@ local function ensure_storage()
   storage.gui_open = storage.gui_open or {}    -- player.index -> rail tile key
   storage.gui_popup = storage.gui_popup or {}  -- player.index -> bool (Select direction открыт)
   storage.gui_live = storage.gui_live or {}    -- player.index -> { key, rows } (живая подсветка)
+  storage.cart_open = storage.cart_open or {}  -- player.index -> un (открытый груз каретки)
+  storage.copy_rail = storage.copy_rail or {}  -- player.index -> key тайла-источника копипаста
 end
 
 -- Пересборка рельсов из сущностей мира (при апдейте мода старый формат storage
@@ -221,6 +316,34 @@ script.on_event(defines.events.on_robot_built_entity, on_built, build_filter)
 script.on_event(defines.events.script_raised_built, on_built, build_filter)
 script.on_event(defines.events.script_raised_revive, on_built, build_filter)
 
+script.on_event(defines.events.on_entity_cloned, on_cloned, build_filter)
+
+-- Перенос настроек рельса при shift-копировании (event нефильтруемый — гард по имени).
+script.on_event(defines.events.on_entity_settings_pasted, on_settings_pasted)
+
+-- Свой путь копипаста (см. paste_rail_settings): источник — ключ тайла.
+script.on_event("gofarovich-scl-copy-settings", function(event)
+  local player = game.get_player(event.player_index)
+  if not player then return end
+  local sel = player.selected
+  if not (sel and sel.valid) then return end  -- копировать нечего — буфер не трогаем
+  storage.copy_rail = storage.copy_rail or {}
+  storage.copy_rail[player.index] = IS_RAIL[sel.name]
+    and G.key_of_tile(G.tile_of(sel.position)) or nil
+end)
+
+script.on_event("gofarovich-scl-paste-settings", function(event)
+  local player = game.get_player(event.player_index)
+  if not player then return end
+  local sel = player.selected
+  if not (sel and sel.valid and IS_RAIL[sel.name]) then return end
+  local skey = storage.copy_rail and storage.copy_rail[player.index]
+  local snode = skey and storage.rails[skey]
+  if snode then
+    paste_rail_settings(snode, G.key_of_tile(G.tile_of(sel.position)))
+  end
+end)
+
 script.on_event(defines.events.on_player_mined_entity, on_removed, build_filter)
 script.on_event(defines.events.on_robot_mined_entity, on_removed, build_filter)
 script.on_event(defines.events.on_entity_died, on_removed, build_filter)
@@ -252,6 +375,46 @@ script.on_event(defines.events.on_tick, function()
   C.on_tick()
   ReorderDemo.on_tick()
   GUI.on_tick()
+end)
+
+-- ── груз каретки (M7): окно + звуки ────────────────────────────────
+-- Окно — нативный script-инвентарь (player.opened = LuaInventory); своего GUI у
+-- simple-entity-with-owner нет, ловим штатную «открыть» (E) linked-инпутом.
+-- Звуки открытия/закрытия — скриптом (у окна script-инвентаря своих нет);
+-- SoundPath entity-open/close железного сундука — та же металлическая семантика.
+-- Вьюпорт с кареткой пробовали и убрали: relative-GUI встаёт только ВОКРУГ всего
+-- окна (top/bottom/left/right), а не между титулом и слотами; внутрь нативного
+-- окна мод-элементы не добавляются.
+-- storage.cart_open[player.index] = un — чей груз открыт (лениво: reload без бампа
+-- версии не даёт on_configuration_changed, см. occ в convoys).
+local function close_cart_gui(player)
+  local open = storage.cart_open
+  if not (open and open[player.index]) then return end  -- закрылось чужое окно
+  open[player.index] = nil
+  player.play_sound({ path = "entity-close/iron-chest" })
+end
+
+script.on_event("gofarovich-scl-open-cart", function(event)
+  local player = game.get_player(event.player_index)
+  if not player then return end
+  local sel = player.selected
+  if not (sel and sel.valid and sel.name == CART) then return end
+  local inv = C.cart_inventory(sel.unit_number)
+  if not inv then return end
+  if player.opened == inv then  -- E по той же каретке при открытом окне = закрыть
+    player.opened = nil         -- on_gui_closed сыграет звук закрытия
+    return
+  end
+  player.opened = inv  -- прежнее окно закрывается тут же (синхронный on_gui_closed)
+  storage.cart_open = storage.cart_open or {}
+  storage.cart_open[player.index] = sel.unit_number
+  player.play_sound({ path = "entity-open/iron-chest" })
+end)
+
+Events.on(defines.events.on_gui_closed, function(event)
+  if event.gui_type ~= defines.gui_type.script_inventory then return end
+  local player = game.get_player(event.player_index)
+  if player then close_cart_gui(player) end
 end)
 
 -- Разворот каретки под курсором по клавише «повернуть» (R) — custom-input из data.lua.
