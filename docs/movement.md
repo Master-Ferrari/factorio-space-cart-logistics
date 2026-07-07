@@ -33,7 +33,7 @@
 - `storage.rails[pos_key] = { x, y, entity, conns, mask/eff_mask, mode, auto_mask, manual_mask, conditions_on, cond_lists, cat_order, read_next }` — `conns`/`eff_mask` = геометрия (галочки/соседи), сущность = маска (морф), `cond_lists` = направленные условия по входу (см. [signals-and-gui.md](signals-and-gui.md)).
 - `storage.cells` — оккупанси по клеткам (клетка → состав), для O(1) проверок.
 - `storage.convoys[id] = { deque клеток, каретки с оффсетами }`.
-- `storage.carts[unit_number] = { entity, convoy_id, offset, inv }` — `inv` = LuaInventory груза (1–5 слотов по качеству; сейчас фикс 4).
+- `storage.carts[unit_number] = { entity, convoy_id, offset, inv }` — `inv` = LuaInventory груза (1–5 слотов по качеству каретки — порядок в цепочке качеств, `G.slots_by_quality`).
 
 ## Цикл тика
 1. (по событию/троттлингу) пересчитать `eff_mask` тайлов (галочки/соседи) → морф сущности (прототип×direction); обработать блэкаут (взрыв занявших клетки кареток). Маршрут (условия входа) считается при входе каретки в тайл, не здесь.

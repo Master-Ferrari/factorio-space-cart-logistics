@@ -17,13 +17,18 @@ local C = require("scripts.convoys")
 local GUI = require("scripts.gui")
 local Events = require("scripts.events")
 local Commands = require("scripts.commands")
+local DebugRails = require("scripts.debug_rails")
 local StyleBrowser = require("__gglib__.style_browser")
 local ReorderDemo = require("scripts.reorder_demo")
 
 local IS_RAIL, CART = G.IS_RAIL, G.CART
 
--- Морф/удаление сущности тайла → рефреш (или закрытие) открытых GUI этого тайла.
-R.on_geometry_changed = function(key) GUI.refresh_key(key) end
+-- Морф/удаление сущности тайла → рефреш (или закрытие) открытых GUI этого тайла
+-- + пересборка оверлея клеток (/scl-debug-rails), если включён.
+R.on_geometry_changed = function(key)
+  GUI.refresh_key(key)
+  DebugRails.mark_dirty()
+end
 
 -- Блэкаут: eff_mask тайла стал 0 (сняли все галочки / пропали соседи в auto) →
 -- каретки на клетках тайла взрываются. Привязан к геометрии, НЕ к условиям.
@@ -162,12 +167,15 @@ local function on_cloned(event)
       return
     end
     C.cart_register(dst)  -- след/курс не клонируются — свежий старт через pick_start
-    -- груз клонируем послотово (LuaInventory один на каретку, у клона — свой)
+    -- груз клонируем послотово (LuaInventory один на каретку, у клона — свой). Размер
+    -- обоих = качество каретки; движок клонит качество → dst-инвентарь того же размера,
+    -- но копируем по min на случай рассинхрона (миграция ещё не прошла у src).
     local scart = src and src.valid and storage.carts[src.unit_number]
     if scart and scart.inv and scart.inv.valid then
       local dinv = C.cart_inventory(dst.unit_number)
       if dinv then
-        for i = 1, #dinv do dinv[i].set_stack(scart.inv[i]) end
+        local n = math.min(#dinv, #scart.inv)
+        for i = 1, n do dinv[i].set_stack(scart.inv[i]) end
       end
     end
   end
@@ -245,6 +253,7 @@ local function ensure_storage()
   storage.gui_live = storage.gui_live or {}    -- player.index -> { key, rows } (живая подсветка)
   storage.cart_open = storage.cart_open or {}  -- player.index -> un (открытый груз каретки)
   storage.copy_rail = storage.copy_rail or {}  -- player.index -> key тайла-источника копипаста
+  storage.tile_incoming = storage.tile_incoming or {}  -- key тайла -> payload входящей каретки (read-next 6h)
 end
 
 -- Пересборка рельсов из сущностей мира (при апдейте мода старый формат storage
@@ -295,6 +304,12 @@ local function rebuild_world()
   -- геометрия не изменилась → прежние курсоры/составы кареток валидны, оставляем как
   -- есть (сохраняя направление). Пересобираем только несовместимое состояние.
   if not C.carts_consistent() then C.rebuild_carts() end
+  -- миграция размера инвентарей под качество (старый фикс-4 → 1–5); оба пути выше
+  -- сохраняют прежний размер инвентаря, поэтому подгоняем после того, как каретки осели.
+  C.migrate_cart_inventories()
+  -- read-next (6h): комбинаторы могли сохранить старые секции, а tile_incoming
+  -- ссылается на старые узлы — чистим, пасс on_tick запишет заново по текущим кареткам.
+  C.read_next_clear_all()
 end
 
 script.on_init(ensure_storage)
@@ -375,6 +390,7 @@ script.on_event(defines.events.on_tick, function()
   C.on_tick()
   ReorderDemo.on_tick()
   GUI.on_tick()
+  DebugRails.on_tick()  -- после C.on_tick: перекраска по свежей occ этого тика
 end)
 
 -- ── груз каретки (M7): окно + звуки ────────────────────────────────

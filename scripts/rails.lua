@@ -103,8 +103,9 @@ R.conns_from_mask = conns_from_mask
 -- ── предикат условия маршрута (направленная модель, v2.4) ───────────
 -- Предикат сравнивает значения сигналов из объединённой red+green сети примари-
 -- комбинатора (таблица {"type/name"=count}) — как у комбинатора. Пустой предикат
--- (сигнал не выбран) = всегда истинно (catch-all-выход). Условия НЕ гейтят
--- геометрию — только выбор выхода в R.pick_exit.
+-- (сигнал не выбран) = **невыполнено** (false): недонастроенное условие не
+-- маршрутизирует, каретка падает в дефолт-правило. Условия НЕ гейтят геометрию —
+-- только выбор выхода в R.pick_exit.
 local CMP = {
   ["<"] = function(a, b) return a < b end,
   [">"] = function(a, b) return a > b end,
@@ -130,7 +131,7 @@ local WILDCARD = {
 }
 
 local function cond_true(signals, cond)
-  if not (cond and cond.signal and cond.signal.name) then return true end
+  if not (cond and cond.signal and cond.signal.name) then return false end
   local f = CMP[cond.comparator or "="]
   if not f then return true end
   local right
@@ -153,7 +154,8 @@ end
 R.cond_true = cond_true
 
 -- Шаблон нового условия входа. exit — один из 3 поворотов входа (задаётся
--- при создании из GUI/команды). Предикат по умолчанию пустой → всегда истинно.
+-- при создании из GUI/команды). Предикат по умолчанию пустой → невыполнено (false),
+-- пока игрок не выберет сигнал.
 function R.new_cond(exit)
   return { exit = exit, name = "", signal = nil, comparator = "=",
            use_signal = false, second_signal = nil, constant = 0 }
@@ -399,6 +401,10 @@ end
 --    И предикат истинен, задаёт выход. Сеть читаем только если у входа есть
 --    условия (частый случай — их нет/выключены, читать незачем).
 -- 2) Иначе дефолт: прямо → направо → налево → стоп.
+--
+-- read-next (6h): груз входящей каретки подмешивается прямо в Circuit.read
+-- (storage.tile_incoming), поэтому read_cached уже возвращает сеть+payload — здесь
+-- отдельного проброса не нужно. Так payload видят и маршрут, и живая подсветка GUI.
 function R.pick_exit(node, entry)
   local list = node.conditions_on and node.cond_lists and node.cond_lists[entry]
   if list and #list > 0 then

@@ -15,7 +15,22 @@ G.IS_RAIL = RM.IS_RAIL                    -- [name] = true
 G.mask_of_entity = RM.mask_of_entity      -- (name, direction, mirroring?) → маска
 G.spec_of_mask = RM.spec_of_mask          -- маска → (name, direction)
 G.CART = "gofarovich-scl-cart"
-G.CART_SLOTS = 4  -- слотов груза на каретку (скриптовый инвентарь, M7)
+
+-- слотов груза = порядковый номер качества каретки в цепочке: normal 1 … legendary 5.
+-- НЕ 1+quality.level: движок оставляет дыру на уровне 4 (legendary.level = 5) под
+-- модовые тиры, поэтому 1+level дал бы legendary 6 слотов. Считаем позицию, идя по
+-- .next от базового качества. У simple-entity-with-owner своего инвентаря нет — размер
+-- скриптового считаем сами (game.create_inventory, C.cart_inventory). quality есть
+-- всегда (без Space Age это «normal» → 1 слот).
+function G.slots_by_quality(entity)
+  local q = entity.quality
+  if not q then return 1 end
+  local slots, cur = 1, prototypes.quality["normal"]
+  while cur and cur.name ~= q.name do
+    cur, slots = cur.next, slots + 1
+  end
+  return slots
+end
 
 -- клеточные длины
 G.CART_LEN = 32   -- физическая длина каретки (= прямой тайл)

@@ -5,6 +5,7 @@ local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local C = require("scripts.convoys")
 local Circuit = require("scripts.circuit")
+local DebugRails = require("scripts.debug_rails")
 
 local CART = G.CART
 
@@ -58,6 +59,15 @@ function Commands.register()
     local n = math.max(1, math.floor(tonumber(cmd.parameter) or 600))
     C.profile_start(n)
     player.print("[SCL] profiling on_tick for " .. n .. " tick(s)…")
+  end)
+
+  -- Оверлей внутренних клеток рельс: направленные квады, заливка = занятость
+  -- (storage.occ). Повторный вызов выключает. Логика — scripts/debug_rails.lua.
+  commands.add_command("scl-debug-rails",
+    "Toggle rail cell overlay around you (optional radius in tiles, default 8)", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    DebugRails.toggle(player, tonumber(cmd.parameter))
   end)
 
   commands.add_command("scl-stats", "Print rail/cart/convoy counts", function(cmd)
@@ -121,7 +131,7 @@ function Commands.register()
 
   -- 6e: задать направленное условие маршрута на тайл под игроком (тест без GUI).
   -- /scl-cond-add <entry> <exit> [signal-name op const]
-  --   entry/exit ∈ N/E/S/W (разворот запрещён). Без предиката = всегда истинно.
+  --   entry/exit ∈ N/E/S/W (разворот запрещён). Без предиката = невыполнено (false).
   --   С предикатом: item-сигнал по имени ЛИБО агрегат each/any/everything, op ∈ < > = ≥ ≤ ≠.
   --   /scl-cond-add N E iron-plate > 5    — с верха при item iron-plate>5 → на E.
   --   /scl-cond-add N E any > 0           — с верха, если в сети есть любой сигнал >0 → на E.

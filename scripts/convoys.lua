@@ -15,6 +15,7 @@
 
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
+local Circuit = require("scripts.circuit")
 
 local C = {}
 
@@ -317,11 +318,66 @@ local function prof_tick(P)
   end
 end
 
+-- ── read-next: вывод груза входящей каретки в провода тайла (6h) ────
+-- «Следующая каретка» тайла T = та, чья голова войдёт в T в СЛЕДУЮЩЕМ тике. Голова
+-- пересечёт границу тайла в следующий тик ⟺ она сейчас в последней клетке своего
+-- сегмента (cursor.i == #seg); тайл-цель = сосед по cursor.exit (уже зафиксирован,
+-- условия T на это не влияют). Кладём payload этой каретки в storage.tile_incoming[T]
+-- — Circuit.read подмешивает его к сети (в Lua), поэтому и маршрут (R.pick_exit на тике
+-- прибытия), и живая подсветка GUI видят груз. В собственный комбинатор рельса payload
+-- НЕ пишем (см. Circuit.read: с проводом get_signals читал бы его обратно → двойной счёт).
+-- Вызов в КОНЦЕ тика (курсоры уже сдвинуты движением). Сходящиеся каретки на один T:
+-- тай-брейк по меньшему unit_number (детерминизм). Пустой груз → как отсутствие.
+--
+-- Обходим ВСЕ каретки, а не только головы составов: в движке каждая каретка состава
+-- пересекает границы тайлов и маршрутизируется своим pick_exit независимо (nh(un) в
+-- проходе движения), поэтому «следующей» для T может быть и ведомая каретка состава.
+local function read_next_pass()
+  local rails = storage.rails
+  local best = {}      -- Tkey -> unit_number (минимальный)
+  local bestcart = {}  -- Tkey -> cart
+  for un, cart in pairs(storage.carts) do
+    local cur = cart.cursor
+    if cur and cur.i == #cur.seg then
+      local T = G.neighbor_tile(cur.tile, cur.exit)
+      local node = rails[T]
+      if node and node.read_next and (not best[T] or un < best[T]) then
+        best[T] = un
+        bestcart[T] = cart
+      end
+    end
+  end
+  local newinc = {}
+  for T, cart in pairs(bestcart) do
+    local payload = C.cart_payload(cart)
+    if payload then newinc[T] = payload end
+  end
+  storage.tile_incoming = newinc
+end
+C.read_next_pass = read_next_pass
+
+-- Сбросить весь read-next (нет составов / rebuild): просто обнуляем tile_incoming.
+function C.read_next_clear_all()
+  storage.tile_incoming = {}
+end
+
 function C.on_tick()
+  -- Миграция: прежняя версия писала payload в секции комбинаторов рельса (вывод в
+  -- провода) — теперь снято (двойной счёт при подключённом проводе). Разово снимаем
+  -- старые секции. reload без бампа версии не даёт on_configuration_changed, поэтому
+  -- чистим здесь под флагом (одна проверка за тик после миграции — пренебрежимо).
+  if not storage.rn_migrated then
+    if storage.rails then
+      for _, node in pairs(storage.rails) do Circuit.clear_payload(node) end
+    end
+    storage.rn_migrated = true
+  end
+
   local P = prof
   if P then P.total.restart() end
   local convoys = storage.convoys
   if not next(convoys) then
+    C.read_next_clear_all()  -- составов нет → снять зависший вывод
     if P then P.total.stop(); prof_tick(P) end
     return
   end
@@ -420,6 +476,7 @@ function C.on_tick()
   for _, cart in pairs(storage.carts) do
     if cart.convoy then update_cart(cart) end
   end
+  read_next_pass()  -- курсоры уже сдвинуты → вывод груза для входящих в след. тик
   if P then
     P.apply.stop()
     P.total.stop()
@@ -481,14 +538,63 @@ end
 -- своего инвентаря нет. LuaInventory сериализуем → живёт в storage.carts[un].inv,
 -- окно — нативное (player.opened = inv, control.lua). Инвентарь — суть каретки
 -- (как у вагона/сундука), создаётся сразу в cart_register; ленивое досоздание
--- здесь — только миграция записей, созданных до модели груза.
+-- здесь — только миграция записей, созданных до модели груза. Размер — по качеству
+-- каретки (G.slots_by_quality), 1–5.
 function C.cart_inventory(un)
   local cart = storage.carts[un]
   if not cart then return nil end
   if not (cart.inv and cart.inv.valid) then
-    cart.inv = game.create_inventory(G.CART_SLOTS, { "entity-name." .. G.CART })
+    cart.inv = game.create_inventory(G.slots_by_quality(cart.entity), { "entity-name." .. G.CART })
   end
   return cart.inv
+end
+
+-- Привести размер инвентаря к качеству каретки, сохранив груз. Рост (миграция старых
+-- фикс-4 у высокого качества) — просто resize: слоты ≤ размера сохраняются, добавляются
+-- пустые. Усадка (миграция фикс-4 у normal-каретки: 4 → 1) — груз из отрезаемых слотов
+-- спиллим на поверхность, чтобы не терять его молча. Идемпотентно (#inv == want → no-op).
+function C.fit_cart_inventory(cart)
+  local inv = cart.inv
+  local ent = cart.entity
+  if not (inv and inv.valid and ent and ent.valid) then return end
+  local want = G.slots_by_quality(ent)
+  if #inv == want then return end
+  if want < #inv then
+    for i = want + 1, #inv do
+      local stack = inv[i]
+      if stack.valid_for_read then
+        ent.surface.spill_item_stack({ position = ent.position, stack = stack })
+      end
+    end
+  end
+  inv.resize(want)
+end
+
+-- Миграция инвентарей всех кареток под качество (апдейт мода: старый фикс-4 → 1–5).
+function C.migrate_cart_inventories()
+  for _, cart in pairs(storage.carts) do
+    C.fit_cart_inventory(cart)
+  end
+end
+
+-- payload каретки (read-next 6h) = сигналы её груза. Массив
+-- { {key, type, name, quality, count}, ... } — key совпадает с Circuit.signal_key
+-- (квалити-aware), поэтому мерджится с чтениями сети без рассинхрона. nil, если груз
+-- пуст (пустая каретка ничего не транслирует — как отсутствие входящей).
+function C.cart_payload(cart)
+  local inv = cart.inv
+  if not (inv and inv.valid) then return nil end
+  local contents = inv.get_contents()  -- 2.0: массив { name, count, quality }
+  if #contents == 0 then return nil end
+  local out = {}
+  for _, it in ipairs(contents) do
+    local q = it.quality or "normal"
+    out[#out + 1] = {
+      key = Circuit.signal_key({ type = "item", name = it.name, quality = q }),
+      type = "item", name = it.name, quality = q, count = it.count,
+    }
+  end
+  return out
 end
 
 -- ── регистрация каретки ────────────────────────────────────────────

@@ -242,8 +242,57 @@ gstyle["gofarovich-scl-cond-fulfilled-frame"] = {
   graphical_set = gstyle.decider_combinator_fulfilled_condition_frame.graphical_set,
 }
 
+-- Рецепты + исследование (даёт доступ к рельсам/кареткам из инвентаря). Открывается
+-- технологией gofarovich-scl-logistics — пререк rocket-silo, 150×(красная+зелёная+
+-- голубая колбы). Имена рецептов = имена item'ов (локаль item-name.*). Текстура
+-- технологии — моковая (graphics/tech-icon.png, tools/gen_placeholders.ps1).
+local rail_recipe = {
+  type = "recipe",
+  name = "gofarovich-scl-rail",
+  enabled = false,
+  ingredients = {
+    { type = "item", name = "iron-gear-wheel",     amount = 20 },
+    { type = "item", name = "iron-stick",          amount = 12 },
+    { type = "item", name = "electric-engine-unit", amount = 1 },
+  },
+  results = { { type = "item", name = "gofarovich-scl-rail", amount = 1 } },
+}
+
+local cart_recipe = {
+  type = "recipe",
+  name = "gofarovich-scl-cart",
+  enabled = false,
+  ingredients = {
+    { type = "item", name = "steel-chest", amount = 1 },
+    { type = "item", name = "car",         amount = 1 },
+  },
+  results = { { type = "item", name = "gofarovich-scl-cart", amount = 1 } },
+}
+
+local logistics_tech = {
+  type = "technology",
+  name = "gofarovich-scl-logistics",
+  icon = GFX .. "tech-icon.png",
+  icon_size = 256,
+  prerequisites = { "rocket-silo" },
+  unit = {
+    count = 150,
+    ingredients = {
+      { "automation-science-pack", 1 },  -- красная
+      { "logistic-science-pack",   1 },  -- зелёная
+      { "chemical-science-pack",   1 },  -- голубая
+    },
+    time = 30,
+  },
+  effects = {
+    { type = "unlock-recipe", recipe = "gofarovich-scl-rail" },
+    { type = "unlock-recipe", recipe = "gofarovich-scl-cart" },
+  },
+}
+
 data:extend({ rail_stub, cart, rail_item, cart_item, reverse_input, open_cart_input,
-              copy_settings_input, paste_settings_input })
+              copy_settings_input, paste_settings_input,
+              rail_recipe, cart_recipe, logistics_tech })
 data:extend(rail_protos)
 data:extend(vp_sprites)
 data:extend(dir_sprites)

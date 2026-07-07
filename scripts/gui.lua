@@ -28,7 +28,7 @@ local GUI = {}
 -- держим подсветку LIT_HOLD тиков после последнего «истинно» (латч в on_tick).
 local FRAME_NORMAL = "decider_combinator_frame"
 local FRAME_LIT    = "gofarovich-scl-cond-fulfilled-frame"  -- decider_combinator_frame + зелёная рамка fulfilled (data.lua); растяжку даём поэлементно (row_card/apply_lit)
-local LIT_HOLD     = 30
+local LIT_HOLD     = 1
 
 GUI.FRAME       = "gofarovich-scl-gui"
 GUI.CLOSE       = "gofarovich-scl-close"
@@ -440,7 +440,8 @@ local function apply_lit(box, lit)
 end
 
 -- Живая подсветка выполненных условий у открытых окон (как у decider-комбинатора).
--- Латч LIT_HOLD: 1-тиковое срабатывание остаётся видимым ~0.5 c.
+-- Латч LIT_HOLD: держит подсветку N тиков после последнего «истинно». LIT_HOLD=1 →
+-- горит только в сам тик срабатывания (латч по сути выключен).
 function GUI.on_tick()
   local live = storage.gui_live
   if not live then return end

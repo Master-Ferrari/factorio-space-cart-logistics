@@ -17,6 +17,20 @@ end
 -- ВАЖНО: читаем через entity.get_signals(red, green), а НЕ get_circuit_network().signals —
 -- последний схлопывает качество (legendary/normal сливаются), а get_signals квалити-aware
 -- (s.signal.quality = имя качества). get_signals уже мерджит оба коннектора.
+--
+-- read-next (6h): груз входящей каретки (storage.tile_incoming[key], см.
+-- convoys.C.read_next_pass) подмешивается ПРЯМО сюда, в Lua, поверх внешней сети. Так
+-- payload видят все читатели (маршрут R.pick_exit И живая подсветка условий GUI) без
+-- зависимости от тайминга цепи.
+--
+-- ВАЖНО, почему payload НЕ эмитится в собственный комбинатор рельса (была попытка —
+-- «вывод в провода»): без проводов get_signals не возвращает эмиссию самого комбинатора,
+-- НО с подключённым проводом — возвращает (payload появляется на сети, которую рельс же
+-- и читает), причём по разу на КАЖДЫЙ цвет (red+green → ×2). Это давало двойной/тройной
+-- счёт своего же груза в условиях. Рельс-комбинатор совмещает роль «читать внешнюю сеть»
+-- и был бы источником вывода — на одной сущности это несовместимо (у constant-combinator
+-- нет отдельного входного коннектора). Поэтому вывод в провода для внешних наблюдателей
+-- снят; для условий рельса payload живёт только в Lua (tile_incoming) — всегда корректно.
 function Circuit.read(node)
   local comp = node and node.entity
   if not (comp and comp.valid) then return nil end
@@ -29,7 +43,24 @@ function Circuit.read(node)
       merged[key] = (merged[key] or 0) + s.count
     end
   end
+  local inc = storage.tile_incoming and storage.tile_incoming[node.x .. "," .. node.y]
+  if inc then
+    for _, e in ipairs(inc) do
+      merged[e.key] = (merged[e.key] or 0) + e.count
+    end
+  end
   return merged
+end
+
+-- Снять read-next секцию с комбинатора рельса. Payload больше туда не пишется (см. выше),
+-- функция нужна для очистки СТАРЫХ секций, записанных прежней версией (миграция).
+function Circuit.clear_payload(node)
+  local comp = node and node.entity
+  if not (comp and comp.valid) then return end
+  local cb = comp.get_control_behavior()
+  if not cb then return end
+  local sec = cb.get_section(1)
+  if sec then sec.filters = {} end
 end
 
 -- Кэш на тайл-на-тик (6g). read() детерминированно, но звать get_circuit_network на

@@ -109,4 +109,39 @@ $gi.Dispose()
 $icon.Save((Join-Path $gfx 'cart-icon.png'), [System.Drawing.Imaging.ImageFormat]::Png)
 $icon.Dispose()
 
+# --- Мок-иконка технологии 256x256 (рельс-крест + стрелка каретки на плашке) ---
+$tech = New-Object System.Drawing.Bitmap 256, 256
+$gt = [System.Drawing.Graphics]::FromImage($tech)
+$gt.SmoothingMode = 'AntiAlias'
+$gt.Clear([System.Drawing.Color]::Transparent)
+# плашка-фон
+$tbg = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 40, 52, 66))
+$tbd = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 90, 120, 150)), 6
+$gt.FillEllipse($tbg, 16, 16, 224, 224)
+$gt.DrawEllipse($tbd, 16, 16, 224, 224)
+# рельс-крест (толстые линии по центру)
+$trail = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(235, 200, 200, 210)), 22
+$trail.StartCap = 'Round'; $trail.EndCap = 'Round'
+$gt.DrawLine($trail, 128, 40, 128, 216)
+$gt.DrawLine($trail, 40, 128, 216, 128)
+# стрелка каретки (по часовой от севера), поверх
+$ts = $gt.Save()
+$gt.TranslateTransform(128, 128)
+$tarrow = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 240, 150, 40))
+$tedge  = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 20, 30, 45)), 4
+$tbody  = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 70, 110, 160))
+$gt.FillRectangle($tbody, -28, -16, 56, 44)
+$gt.DrawRectangle($tedge, -28, -16, 56, 44)
+$tpts = @(
+    (New-Object System.Drawing.PointF(0,   -48)),
+    (New-Object System.Drawing.PointF(-24, -12)),
+    (New-Object System.Drawing.PointF(24,  -12))
+)
+$gt.FillPolygon($tarrow, $tpts)
+$gt.DrawPolygon($tedge, $tpts)
+$gt.Restore($ts)
+$gt.Dispose()
+$tech.Save((Join-Path $gfx 'tech-icon.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+$tech.Dispose()
+
 Write-Output "placeholders written to $gfx"
