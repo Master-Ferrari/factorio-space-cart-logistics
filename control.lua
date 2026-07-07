@@ -4,22 +4,22 @@
 --   geometry.lua — определения, координаты, сегменты клеток.
 --   rails.lua    — граф рельс, битмаска соединений, маршрут.
 --   convoys.lua  — клеточная модель движения (дек, оккупанси, on_tick).
+--   docks.lua    — доки (M7): захват/отпускание кареток, рука 7.1–7.7.
 --   circuit.lua  — чтение цепи рельса (машина wire-connectable нативно).
 --   gui.lua      — окно тайла + роутинг on_gui_* событий.
 --   commands.lua — отладочные /scl-* команды.
---   reorder_demo.lua   — демо DnD-реордера (/scl-drag-reorder, нужен flib).
 -- Браузер GUI-стилей (/scl-style-browser) теперь живёт в gglib (__gglib__.style_browser).
 
 local util = require("util")
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local C = require("scripts.convoys")
+local Docks = require("scripts.docks")
 local GUI = require("scripts.gui")
 local Events = require("scripts.events")
 local Commands = require("scripts.commands")
 local DebugRails = require("scripts.debug_rails")
 local StyleBrowser = require("__gglib__.style_browser")
-local ReorderDemo = require("scripts.reorder_demo")
 
 local IS_RAIL, CART = G.IS_RAIL, G.CART
 
@@ -88,6 +88,8 @@ local function on_built(event)
       return
     end
     C.cart_register(e)
+  elseif e.name == Docks.DOCK then
+    Docks.dock_add(e)
   end
 end
 
@@ -122,6 +124,9 @@ local function on_removed(event)
       end
     end
     C.cart_unregister(e)
+  elseif e.name == Docks.DOCK then
+    -- пойманная каретка (если была) остаётся стоять на месте дока — docks.lua
+    Docks.dock_remove(e)
   end
 end
 
@@ -160,6 +165,8 @@ local function on_cloned(event)
       node.read_next = snode.read_next
       R.rail_update(key)
     end
+  elseif dst.name == Docks.DOCK then
+    Docks.dock_add(dst)  -- свежий старт: пойманная каретка/курс не клонируются
   elseif dst.name == CART then
     local node = storage.rails[G.key_of_tile(G.tile_of(dst.position))]
     if not (node and node.eff_mask ~= 0) then
@@ -254,6 +261,7 @@ local function ensure_storage()
   storage.cart_open = storage.cart_open or {}  -- player.index -> un (открытый груз каретки)
   storage.copy_rail = storage.copy_rail or {}  -- player.index -> key тайла-источника копипаста
   storage.tile_incoming = storage.tile_incoming or {}  -- key тайла -> payload входящей каретки (read-next 6h)
+  storage.docks = storage.docks or {}          -- key тайла -> док (M7, scripts/docks.lua)
 end
 
 -- Пересборка рельсов из сущностей мира (при апдейте мода старый формат storage
@@ -310,6 +318,8 @@ local function rebuild_world()
   -- read-next (6h): комбинаторы могли сохранить старые секции, а tile_incoming
   -- ссылается на старые узлы — чистим, пасс on_tick запишет заново по текущим кареткам.
   C.read_next_clear_all()
+  -- доки — после слоя кареток: пойманная каретка релинкуется по unit_number.
+  Docks.rebuild()
 end
 
 script.on_init(ensure_storage)
@@ -318,12 +328,15 @@ script.on_configuration_changed(function()
   rebuild_world()
 end)
 
--- Фильтры: 22 прототипа рельса (+ каретка для built/removed).
+-- Фильтры: 22 прототипа рельса (+ каретка и док для built/removed).
 local rail_filter = {}
 for _, n in ipairs(G.RAIL_NAMES) do
   rail_filter[#rail_filter + 1] = { filter = "name", name = n }
 end
-local build_filter = { { filter = "name", name = CART } }
+local build_filter = {
+  { filter = "name", name = CART },
+  { filter = "name", name = Docks.DOCK },
+}
 for _, f in ipairs(rail_filter) do build_filter[#build_filter + 1] = f end
 
 script.on_event(defines.events.on_built_entity, on_built, build_filter)
@@ -388,7 +401,7 @@ script.on_event(defines.events.on_player_setup_blueprint, on_setup_blueprint)
 
 script.on_event(defines.events.on_tick, function()
   C.on_tick()
-  ReorderDemo.on_tick()
+  Docks.on_tick()       -- после C.on_tick: курсоры кареток уже сдвинуты этим тиком
   GUI.on_tick()
   DebugRails.on_tick()  -- после C.on_tick: перекраска по свежей occ этого тика
 end)
@@ -443,6 +456,16 @@ script.on_event("gofarovich-scl-reverse-cart", function(event)
   end
 end)
 
+-- Док — constant-combinator: подавляем его нативное окно (логистические секции
+-- дока не используются). Свой GUI дока (условия захвата/отпускания) — шаг 4 M7.
+Events.on(defines.events.on_gui_opened, function(event)
+  if event.gui_type ~= defines.gui_type.entity then return end
+  local e = event.entity
+  if not (e and e.valid and e.name == Docks.DOCK) then return end
+  local player = game.get_player(event.player_index)
+  if player then player.opened = nil end
+end)
+
 -- GUI тайла (M6) и его on_gui_* события — в scripts/gui.lua.
 GUI.register_events()
 
@@ -455,6 +478,3 @@ StyleBrowser.register_command("scl-style-browser")
 Events.on(defines.events.on_gui_click, function(e) StyleBrowser.on_click(e) end)
 Events.on(defines.events.on_gui_text_changed, function(e) StyleBrowser.on_text(e) end)
 Events.on(defines.events.on_gui_closed, function(e) StyleBrowser.on_closed(e) end)
-
--- Демо DnD-реордера списка (flib titlebar handle) — /scl-drag-reorder.
-ReorderDemo.register()

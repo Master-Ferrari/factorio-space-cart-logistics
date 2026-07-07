@@ -121,6 +121,69 @@ local cart = {
   },
 }
 
+-- ── Док (M7, скелет — docs/docks.md) ────────────────────────────────
+-- База — constant-combinator, по тем же причинам, что у рельса (hard-decisions):
+-- нативные direction (4 стороны, без хаков и стрелок) и провода (шаг 4: источники
+-- R/G условий захвата), direction в блюпринтах, не крафт-машина (нет статуса
+-- работы). Базовый арт — integration_patch (Sprite4Way, ячейки dock.png N/E/S/W);
+-- состояние (рука 7.1–7.7 / disabled) — АРМ-ОВЕРЛЕЙ: отдельная runtime-сущность
+-- gofarovich-scl-dock-arm с graphics_variation (паттерн каретки), не-блюпринтная и
+-- невыбираемая — чертежи несут только сам док-комбинатор, схема рельса v2.3 этим
+-- не ломается. Нативный GUI комбинатора подавляется в control.lua (on_gui_opened).
+local dock = table.deepcopy(data.raw["constant-combinator"]["constant-combinator"])
+dock.name = "gofarovich-scl-dock"
+dock.localised_name = { "entity-name.gofarovich-scl-dock" }
+dock.localised_description = { "entity-description.gofarovich-scl-dock" }
+dock.icon = GFX .. "dock-icon.png"
+dock.icon_size = 64
+dock.flags = { "placeable-neutral", "player-creation", "not-upgradable" }
+dock.minable = { mining_time = 0.2, result = "gofarovich-scl-dock" }
+dock.max_health = 200
+-- обычная коллизия зданий: два дока на тайл не встают; рельс/каретка (пустые
+-- маски) с доком не конфликтуют — док можно ставить вплотную к линии
+dock.collision_box = { { -0.45, -0.45 }, { 0.45, 0.45 } }
+dock.selection_box = { { -0.5, -0.5 }, { 0.5, 0.5 } }
+dock.sprites = util.empty_sprite()
+dock.activity_led_sprites = util.empty_sprite()
+dock.next_upgrade = nil
+dock.fast_replaceable_group = nil
+dock.integration_patch = {
+  north = { filename = GFX .. "dock.png", width = 64, height = 64, x = 0,   scale = 0.5 },
+  east  = { filename = GFX .. "dock.png", width = 64, height = 64, x = 64,  scale = 0.5 },
+  south = { filename = GFX .. "dock.png", width = 64, height = 64, x = 128, scale = 0.5 },
+  west  = { filename = GFX .. "dock.png", width = 64, height = 64, x = 192, scale = 0.5 },
+}
+dock.integration_patch_render_layer = "lower-object"
+
+-- Арм-оверлей дока: кадры руки. Вариации 1..68 = сторона (N,E,S,W) × выдвижение
+-- (0..16, кадр = клетка центра ловимой каретки), 69 = disabled-крест. Кадр 192×192
+-- (scale 0.5 → 3×3 тайла): рука тянется от центра дока до центра целевого тайла.
+-- Runtime-создание в docks.lua; поверх кареток (higher-object-above).
+local dock_arm = {
+  type = "simple-entity-with-owner",
+  name = "gofarovich-scl-dock-arm",
+  icon = GFX .. "dock-icon.png",
+  icon_size = 64,
+  hidden = true,
+  flags = { "placeable-neutral", "not-on-map", "not-blueprintable", "not-deconstructable" },
+  max_health = 100,
+  collision_mask = { layers = {} },
+  collision_box = { { -0.1, -0.1 }, { 0.1, 0.1 } },
+  -- selection_box отсутствует → сущность не выбирается курсором (клики идут в док)
+  random_variation_on_create = false,
+  render_layer = "higher-object-above",
+  pictures = {
+    sheet = {
+      filename = GFX .. "dock-arm.png",
+      width = 192,
+      height = 192,
+      line_length = 17,
+      variation_count = 69,
+      scale = 0.5,
+    },
+  },
+}
+
 -- Один item на все 22 варианта. В руке ставит «крест» (маска 3 = N-S + E-W) —
 -- видимое превью; сразу после постройки скрипт морфит сущность под фактическую маску.
 local rail_item = {
@@ -143,6 +206,17 @@ local cart_item = {
   order = "z-scl-b[cart]",
   stack_size = 50,
   place_result = "gofarovich-scl-cart",
+}
+
+local dock_item = {
+  type = "item",
+  name = "gofarovich-scl-dock",
+  icon = GFX .. "dock-icon.png",
+  icon_size = 64,
+  subgroup = "belt",
+  order = "z-scl-c[dock]",
+  stack_size = 50,
+  place_result = "gofarovich-scl-dock",
 }
 
 -- Слои вьюпорта GUI: окно собирает картинку тайла стопкой спрайтов с альфой —
@@ -269,6 +343,18 @@ local cart_recipe = {
   results = { { type = "item", name = "gofarovich-scl-cart", amount = 1 } },
 }
 
+local dock_recipe = {
+  type = "recipe",
+  name = "gofarovich-scl-dock",
+  enabled = false,
+  ingredients = {
+    { type = "item", name = "steel-plate",          amount = 10 },
+    { type = "item", name = "electric-engine-unit", amount = 2 },
+    { type = "item", name = "fast-inserter",        amount = 2 },
+  },
+  results = { { type = "item", name = "gofarovich-scl-dock", amount = 1 } },
+}
+
 local logistics_tech = {
   type = "technology",
   name = "gofarovich-scl-logistics",
@@ -287,12 +373,14 @@ local logistics_tech = {
   effects = {
     { type = "unlock-recipe", recipe = "gofarovich-scl-rail" },
     { type = "unlock-recipe", recipe = "gofarovich-scl-cart" },
+    { type = "unlock-recipe", recipe = "gofarovich-scl-dock" },
   },
 }
 
-data:extend({ rail_stub, cart, rail_item, cart_item, reverse_input, open_cart_input,
+data:extend({ rail_stub, cart, dock, dock_arm, rail_item, cart_item, dock_item,
+              reverse_input, open_cart_input,
               copy_settings_input, paste_settings_input,
-              rail_recipe, cart_recipe, logistics_tech })
+              rail_recipe, cart_recipe, dock_recipe, logistics_tech })
 data:extend(rail_protos)
 data:extend(vp_sprites)
 data:extend(dir_sprites)

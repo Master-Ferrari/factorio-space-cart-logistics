@@ -144,4 +144,90 @@ $gt.Dispose()
 $tech.Save((Join-Path $gfx 'tech-icon.png'), [System.Drawing.Imaging.ImageFormat]::Png)
 $tech.Dispose()
 
+# --- Док (M7): база dock.png (4 ячейки 64x64 в ряд: N,E,S,W), иконка,
+# --- арм-оверлей dock-arm.png (69 кадров 192x192: 4 стороны x выдвижение 0..16 + disabled).
+# Контракт кадров руки — scripts/docks.lua: variation = side_idx*17 + arm + 1, 69 = disabled.
+
+# Площадка дока с вырезом-направлением (angleDeg: N=0, E=90, S=180, W=270), в (ox,oy)
+function Draw-DockBase([System.Drawing.Graphics]$g, [single]$angleDeg, [int]$ox, [int]$oy) {
+    $state = $g.Save()
+    $g.TranslateTransform(($ox + 32), ($oy + 32))
+    $g.RotateTransform($angleDeg)
+    $pad   = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 96, 78, 56))
+    $plate = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 140, 116, 84))
+    $edge  = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 30, 24, 18)), 3
+    $slot  = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 240, 150, 40))
+    $g.FillRectangle($pad, -28, -28, 56, 56)
+    $g.DrawRectangle($edge, -28, -28, 56, 56)
+    $g.FillRectangle($plate, -20, -20, 40, 40)
+    # вырез-стрелка к целевому тайлу (вверх в локальной рамке)
+    $pts = @(
+        (New-Object System.Drawing.PointF(0,   -30)),
+        (New-Object System.Drawing.PointF(-10, -14)),
+        (New-Object System.Drawing.PointF(10,  -14))
+    )
+    $g.FillPolygon($slot, $pts)
+    $g.Restore($state)
+}
+
+$dockAngles = @(0, 90, 180, 270)   # N, E, S, W — порядок ячеек листа
+$dockSheet = New-Object System.Drawing.Bitmap 256, 64
+$gd = [System.Drawing.Graphics]::FromImage($dockSheet)
+$gd.SmoothingMode = 'AntiAlias'
+$gd.Clear([System.Drawing.Color]::Transparent)
+for ($i = 0; $i -lt 4; $i++) { Draw-DockBase $gd $dockAngles[$i] ($i * 64) 0 }
+$gd.Dispose()
+$dockSheet.Save((Join-Path $gfx 'dock.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+$dockSheet.Dispose()
+
+$dockIcon = New-Object System.Drawing.Bitmap 64, 64
+$gdi = [System.Drawing.Graphics]::FromImage($dockIcon)
+$gdi.SmoothingMode = 'AntiAlias'
+$gdi.Clear([System.Drawing.Color]::Transparent)
+Draw-DockBase $gdi 0 0 0
+$gdi.Dispose()
+$dockIcon.Save((Join-Path $gfx 'dock-icon.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+$dockIcon.Dispose()
+
+# Кадр руки: канва 192x192 (scale 0.5 -> 3x3 тайла, центр = центр дока). Рука тянется
+# от центра дока к центру целевого тайла (64 src px), длина = arm/16 доли пути.
+function Draw-DockArm([System.Drawing.Graphics]$g, [single]$angleDeg, [int]$arm, [int]$ox, [int]$oy) {
+    $state = $g.Save()
+    $g.TranslateTransform(($ox + 96), ($oy + 96))
+    $g.RotateTransform($angleDeg)
+    $armPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(255, 215, 215, 225)), 8
+    $armPen.StartCap = 'Round'; $armPen.EndCap = 'Round'
+    $hub  = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 60, 60, 70))
+    $claw = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 240, 150, 40))
+    $len = [int](64 * $arm / 16)
+    if ($len -gt 0) { $g.DrawLine($armPen, 0, 0, 0, -$len) }
+    $g.FillEllipse($hub, -7, -7, 14, 14)
+    $g.FillEllipse($claw, -6, (-$len - 6), 12, 12)
+    $g.Restore($state)
+}
+
+$armCols = 17          # line_length в data.lua
+$armFrames = 4 * 17 + 1  # 68 кадров руки + disabled
+$armRows = [math]::Ceiling($armFrames / $armCols)
+$armSheet = New-Object System.Drawing.Bitmap ($armCols * 192), ($armRows * 192)
+$ga = [System.Drawing.Graphics]::FromImage($armSheet)
+$ga.SmoothingMode = 'AntiAlias'
+$ga.Clear([System.Drawing.Color]::Transparent)
+for ($f = 0; $f -lt $armFrames; $f++) {
+    $ox = ($f % $armCols) * 192
+    $oy = [math]::Floor($f / $armCols) * 192
+    if ($f -lt 68) {
+        Draw-DockArm $ga $dockAngles[[math]::Floor($f / 17)] ($f % 17) $ox $oy
+    } else {
+        # disabled: красный крест над доком
+        $x = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(230, 200, 50, 40)), 8
+        $x.StartCap = 'Round'; $x.EndCap = 'Round'
+        $ga.DrawLine($x, ($ox + 78), ($oy + 78), ($ox + 114), ($oy + 114))
+        $ga.DrawLine($x, ($ox + 114), ($oy + 78), ($ox + 78), ($oy + 114))
+    }
+}
+$ga.Dispose()
+$armSheet.Save((Join-Path $gfx 'dock-arm.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+$armSheet.Dispose()
+
 Write-Output "placeholders written to $gfx"

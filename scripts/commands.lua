@@ -4,6 +4,7 @@
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local C = require("scripts.convoys")
+local Docks = require("scripts.docks")
 local Circuit = require("scripts.circuit")
 local DebugRails = require("scripts.debug_rails")
 
@@ -167,6 +168,38 @@ function Commands.register()
       or " (always)"
     player.print("[SCL] cond @ " .. key .. ": " .. entry .. "→" .. exit .. pred ..
       "  [#" .. #node.cond_lists[entry] .. " in " .. entry .. "]")
+  end)
+
+  -- M7 (скелет дока): опустить пойманную каретку. Условия отпускания — шаг 5;
+  -- пока команда = единственный триггер (док держит каретку до неё).
+  commands.add_command("scl-dock-release", "Release the caught cart from the dock under you", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local key = G.key_of_tile(G.tile_of(player.position))
+    local d = storage.docks and storage.docks[key]
+    if not d then
+      player.print("[SCL] No dock under you (" .. key .. "). Stand on the dock tile.")
+      return
+    end
+    if Docks.release(key) then
+      player.print("[SCL] dock @ " .. key .. ": releasing cart " .. tostring(d.held))
+    else
+      player.print("[SCL] dock @ " .. key .. ": nothing to release (state=" .. tostring(d.state) .. ")")
+    end
+  end)
+
+  commands.add_command("scl-dock-info", "Print state of all docks", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local n = 0
+    for key, d in pairs(storage.docks or {}) do
+      n = n + 1
+      player.print(("[SCL] dock @ %s dir=%s target=%s enabled=%s state=%s arm=%d held=%s heading=%s watch=%s")
+        :format(key, tostring(d.dir), tostring(d.tkey), tostring(d.enabled),
+                tostring(d.state), d.arm or 0, tostring(d.held), tostring(d.heading),
+                tostring(d.watch)))
+    end
+    if n == 0 then player.print("[SCL] no docks") end
   end)
 
   commands.add_command("scl-cond-clear", "Clear all routing conditions on the rail under you", function(cmd)

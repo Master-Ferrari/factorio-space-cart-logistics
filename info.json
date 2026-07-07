@@ -1,10 +1,10 @@
 {
   "name": "space-cart-logistics",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "title": "Space Cart Logistics",
   "author": "gofarovich",
   "factorio_version": "2.0",
-  "description": "Tile-sized rails and externally-routed carts (OHT/AMHS-style), simulated entirely in Lua. Milestone 5: intersection arbitration (give-way-to-the-right + absolute N>E>S>W tiebreak) over the cell model, snake-deque convoys (join/split), bitmask rails and right-hand routing.",
+  "description": "Tile-sized rails and externally-routed carts (OHT/AMHS-style), simulated entirely in Lua. Milestone 7: cart cargo (quality = slots) and dock skeleton (directional 1x1 grabs carts off straight rail, arm follows the approaching cart), on top of directional routing conditions, read-next, intersection arbitration and snake-deque convoys.",
   "dependencies": [
     "base >= 2.0.0",
     "gglib >= 1.0.0",

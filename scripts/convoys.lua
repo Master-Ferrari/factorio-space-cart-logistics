@@ -110,39 +110,6 @@ local function nh(un, cart)
   return nil
 end
 
--- ── создание ───────────────────────────────────────────────────────
--- Построить каретку-окно из CART_LEN клеток вдоль пути и состав-из-одного.
-function C.bootstrap_convoy(un, entity, startkey, entry, exit)
-  local cursor = { tile = startkey, entry = entry, exit = exit, seg = G.get_segment(entry, exit), i = 0 }
-  local cells = {}
-  local head = 0
-  for _ = 1, G.CART_LEN do
-    local cell, ncur = next_head(cursor)
-    if not cell then break end
-    head = head + 1
-    cells[head] = cell
-    cursor = ncur
-  end
-  if head == 0 then return nil end
-
-  local id = storage.next_convoy_id
-  storage.next_convoy_id = id + 1
-  storage.carts[un] = {
-    entity = entity,
-    convoy = id,
-    cells = cells,
-    head = head,
-    tail = 1,
-    cursor = cursor,
-  }
-  storage.convoys[id] = { id = id, carts = { un } }
-  local occ = storage.occ
-  if occ then  -- nil (стейл-загрузка без config_changed) → ленивый rebuild в on_tick
-    for i = 1, head do occ_add(occ, un, cells[i]) end
-  end
-  return id
-end
-
 -- ── применение к сущностям ─────────────────────────────────────────
 local function update_cart(cart)
   if not (cart.entity and cart.entity.valid) then return end
@@ -160,6 +127,98 @@ local function update_cart(cart)
     cart.facing = cell.facing
     cart.entity.graphics_variation = cell.facing
   end
+end
+
+-- ── постановка на рельс / снятие с рельса ──────────────────────────
+-- Поставить СУЩЕСТВУЮЩУЮ запись каретки на путь: окно CART_LEN клеток вдоль
+-- (entry→exit) от тайла startkey + состав-из-одного. Запись (и её inv) сохраняется —
+-- этим пользуются и регистрация новой каретки, и опускание из дока (M7).
+-- require_free: не ставить, если хоть одна клетка окна занята другой кареткой
+-- (док ждёт свободного рельса, 7.6); постройка игроком не проверяет (как раньше).
+function C.cart_attach(un, startkey, entry, exit, require_free)
+  local cart = storage.carts[un]
+  if not (cart and cart.entity and cart.entity.valid) then return nil end
+  local cursor = { tile = startkey, entry = entry, exit = exit, seg = G.get_segment(entry, exit), i = 0 }
+  local cells = {}
+  local head = 0
+  for _ = 1, G.CART_LEN do
+    local cell, ncur = next_head(cursor)
+    if not cell then break end
+    head = head + 1
+    cells[head] = cell
+    cursor = ncur
+  end
+  if head == 0 then return nil end
+  if require_free then
+    local occ = storage.occ
+    if occ then
+      for i = 1, head do
+        if occ[G.cellnum(cells[i])] then return nil end
+      end
+    end
+  end
+
+  local id = storage.next_convoy_id
+  storage.next_convoy_id = id + 1
+  cart.convoy = id
+  cart.cells = cells
+  cart.head = head
+  cart.tail = 1
+  cart.cursor = cursor
+  storage.convoys[id] = { id = id, carts = { un } }
+  local occ = storage.occ
+  if occ then  -- nil (стейл-загрузка без config_changed) → ленивый rebuild в on_tick
+    for i = 1, head do occ_add(occ, un, cells[i]) end
+  end
+  update_cart(cart)
+  return id
+end
+
+-- Вырезать каретку из её состава: передняя/задняя части остаются составами
+-- (или вливаются в исходный). Общий код cart_unregister (снос) и cart_detach (док).
+local function convoy_excise(un, cart)
+  local cv = storage.convoys[cart.convoy]
+  if not cv then return end
+  local idx
+  for k, oun in ipairs(cv.carts) do
+    if oun == un then idx = k; break end
+  end
+  if not idx then return end
+  local front, back = {}, {}
+  for k, oun in ipairs(cv.carts) do
+    if k < idx then front[#front + 1] = oun
+    elseif k > idx then back[#back + 1] = oun end
+  end
+  if #front > 0 and #back > 0 then
+    cv.carts = front
+    local nid = storage.next_convoy_id
+    storage.next_convoy_id = nid + 1
+    storage.convoys[nid] = { id = nid, carts = back }
+    for _, oun in ipairs(back) do storage.carts[oun].convoy = nid end
+  elseif #front > 0 then
+    cv.carts = front
+  elseif #back > 0 then
+    cv.carts = back
+  else
+    storage.convoys[cv.id] = nil
+  end
+end
+
+-- Снять каретку с рельса, СОХРАНИВ запись (сущность + груз): чистим оккупанси,
+-- вырезаем из состава, сносим след/курсор. Обратная операция — C.cart_attach.
+-- Захват доком (M7): каретка становится контейнером дока, из движения выпадает.
+function C.cart_detach(un)
+  local cart = storage.carts[un]
+  if not (cart and cart.convoy) then return false end
+  if cart.cells and cart.tail and cart.head then
+    local occ = storage.occ
+    if occ then
+      for i = cart.tail, cart.head do occ_del(occ, un, cart.cells[i]) end
+    end
+  end
+  convoy_excise(un, cart)
+  cart.convoy, cart.cells, cart.head, cart.tail, cart.cursor = nil, nil, nil, nil, nil
+  return true
 end
 
 -- ── on_tick ────────────────────────────────────────────────────────
@@ -615,17 +674,14 @@ function C.cart_register(entity)
   local un = entity.unit_number
   local tx, ty = G.tile_of(entity.position)
   local key = G.key_of_tile(tx, ty)
+  storage.carts[un] = { entity = entity, convoy = nil }
+  C.cart_inventory(un)  -- груз — суть каретки, создаём сразу
   local node = storage.rails[key]
   if node then
     local entry, exit = pick_start(node)
-    if entry and C.bootstrap_convoy(un, entity, key, entry, exit) then
-      C.cart_inventory(un)  -- груз — суть каретки, создаём сразу
-      return
-    end
+    -- нет рельса/соединений под кареткой — стоит на месте (без состава)
+    if entry then C.cart_attach(un, key, entry, exit) end
   end
-  -- нет рельса/соединений под кареткой — стоит на месте (без состава)
-  storage.carts[un] = { entity = entity, convoy = nil }
-  C.cart_inventory(un)
 end
 
 -- При сносе члена состава раскалываем его на переднюю/заднюю части.
@@ -641,35 +697,7 @@ function C.cart_unregister(entity)
       for i = cart.tail, cart.head do occ_del(occ, un, cart.cells[i]) end
     end
   end
-  if cart and cart.convoy then
-    local cv = storage.convoys[cart.convoy]
-    if cv then
-      local idx
-      for k, oun in ipairs(cv.carts) do
-        if oun == un then idx = k; break end
-      end
-      if idx then
-        local front, back = {}, {}
-        for k, oun in ipairs(cv.carts) do
-          if k < idx then front[#front + 1] = oun
-          elseif k > idx then back[#back + 1] = oun end
-        end
-        if #front > 0 and #back > 0 then
-          cv.carts = front
-          local nid = storage.next_convoy_id
-          storage.next_convoy_id = nid + 1
-          storage.convoys[nid] = { id = nid, carts = back }
-          for _, oun in ipairs(back) do storage.carts[oun].convoy = nid end
-        elseif #front > 0 then
-          cv.carts = front
-        elseif #back > 0 then
-          cv.carts = back
-        else
-          storage.convoys[cv.id] = nil
-        end
-      end
-    end
-  end
+  if cart and cart.convoy then convoy_excise(un, cart) end
   storage.carts[un] = nil
 end
 
