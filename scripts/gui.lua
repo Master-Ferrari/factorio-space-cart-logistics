@@ -6,7 +6,8 @@
 -- ОДНО окно (тащится нативно целиком): сверху панель «Cart rail» (вьюпорт активных
 -- путей + 3×3 галочки правки manual-маски + чекбоксы manual / conditions), СНИЗУ —
 -- панель условий (manual && conditions_on): список по входу в категориях-рамках на
--- тёмном фоне; «New condition» + read next.
+-- тёмном фоне; «New condition». У операндов — галочки источников R/G/C (C = груз
+-- входящей каретки; тайловая галочка read-next упразднена — payload читается всегда).
 --
 -- Условие = (вход→выход): предикат. Порядок внутри категории = приоритет. Реордер ↑/↓
 -- (слева, нативного drag в API нет). conditions_on — мастер-переключатель: гейтит и
@@ -15,8 +16,8 @@
 
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
-local Circuit = require("scripts.circuit")
 local Events = require("scripts.events")
+local GUIDock = require("scripts.gui_dock")  -- диспатч результата пикера (target.dock)
 local SP = require("__gglib__.signal_picker")  -- общий пикер из мода-библиотеки gglib
 local SB = require("__gglib__.signal_button")  -- кнопка-слот операнда из gglib (открывает пикер)
 local CS = require("__gglib__.connection_status")  -- субхедер «к чему подключено» из gglib
@@ -35,7 +36,6 @@ GUI.CLOSE       = "gofarovich-scl-close"
 GUI.MANUAL      = "gofarovich-scl-manual"
 GUI.CONDITIONS  = "gofarovich-scl-conditions"     -- чекбокс мастер-переключателя
 GUI.CONN_CHECK  = "gofarovich-scl-conn-"          -- + ключ соединения (N-S, ...)
-GUI.READ_NEXT   = "gofarovich-scl-read-next"
 GUI.NEWCOND     = "gofarovich-scl-newcond"
 GUI.CAT_DEL     = "gofarovich-scl-cat-del-"       -- + entry
 GUI.CAT_UP      = "gofarovich-scl-catup-"         -- + entry (визуальный реордер категории)
@@ -95,7 +95,7 @@ end
 -- 3×3 галочки-компас поверх вьюпорта (только в manual): состояние = бит ручной маски.
 -- VIEW = натуральный размер текстур вьюпорта (256, граф. 1:1, дальше — апскейл/блюр).
 local VIEW = 256
-local COND_WIDTH = 446  -- ширина окна при открытых условиях
+local COND_WIDTH = 406  -- ширина окна при открытых условиях
 local function add_path_checks(overlay, node)
   local at = {}
   for conn, rc in pairs(CONN_CELL) do
@@ -192,20 +192,54 @@ local function add_category_header(parent, entry, ci, count)
     caption = { "", CAT_ARROW[entry] .. "  ", { "gofarovich-scl-gui.entry-" .. entry } } }
   local sp = row.add{ type = "empty-widget" }
   sp.style.horizontally_stretchable = true
+  -- крестик — как у строк условий: прозрачная подложка, проявляется при наведении
   local del = row.add{ type = "sprite-button", name = GUI.CAT_DEL .. entry,
-    style = "dark_button", sprite = "utility/close",
+    style = "frame_action_button", sprite = "utility/close",
+    hovered_sprite = "utility/close_black", clicked_sprite = "utility/close",
     tooltip = { "gofarovich-scl-gui.del-cat" } }
-  del.style.width = 16
-  del.style.height = 36
-  del.style.padding = 0
+  del.style.size = 20
+  del.style.left_margin = 4
+  del.style.right_margin = 4
 end
 
 -- Кнопка-слот операнда — виджет из gglib (__gglib__/signal_button): показывает сигнал
 -- (с бейджем качества) или константу и по клику открывает пикер. target кодирует, какое
 -- условие/поле редактируем (его gglib вернёт в SP.set_on_pick). Сама кнопка событий не
 -- регистрирует — клик прокидываем через SB.on_click в мультиплексоре событий.
-local function add_operand_slot(row, key, entry, idx, field, value, opts, enabled)
-  local b = SB.build(row, {
+--
+-- Слева от слота — столбец галочек источников R/G/Cart (как у дока): R/G — провода
+-- рельса раздельно, C — груз ВХОДЯЩЕЙ каретки (tile_incoming наполняется всегда,
+-- флаг read-next упразднён). У легаси-условий lsrc/rsrc нет — рисуем «все три»
+-- (тождественно прежнему слитому чтению), таблица материализуется при первой
+-- правке галочки. У правого операнда-константы источники гаснут.
+local SRC_ALL = { r = true, g = true, cart = true }  -- только для отрисовки легаси
+
+local function add_src_checks(parent, side, entry, idx, src, active, wired_r, wired_g)
+  local col = parent.add{ type = "flow", direction = "vertical" }
+  col.style.vertical_spacing = -1
+  local sfx = "-" .. entry .. "-" .. idx
+  local function chk(letter, cap, state, enabled, tip)
+    local c = col.add{ type = "checkbox", name = GUI.CN .. side .. letter .. sfx,
+      caption = cap, state = state and true or false, tooltip = tip }
+    c.style.font = "default-tiny-bold"
+    c.style.right_padding = 6
+    c.enabled = enabled
+  end
+  chk("r", "R", src.r, active and wired_r, { "gofarovich-scl-gui.src-r" })
+  chk("g", "G", src.g, active and wired_g, { "gofarovich-scl-gui.src-g" })
+  chk("c", "C", src.cart, active, { "gofarovich-scl-gui.src-next" })
+end
+
+local function add_operand_slot(row, key, entry, idx, field, value, opts, enabled, cond, srcinfo)
+  local wrap = row.add{ type = "flow", direction = "horizontal" }
+  wrap.style.vertical_align = "center"
+  wrap.style.horizontal_spacing = 2
+  local is_left = field == "siga"
+  local active = enabled and (is_left or cond.use_signal == true)
+  add_src_checks(wrap, is_left and "l" or "r", entry, idx,
+    (is_left and cond.lsrc or cond.rsrc) or SRC_ALL,
+    active, srcinfo.wr, srcinfo.wg)
+  local b = SB.build(wrap, {
     target = { key = key, entry = entry, idx = idx, field = field },
     value = value,
     size = 44,
@@ -219,7 +253,7 @@ end
 -- stale — выход условия выключен галочкой (CONN[entry][exit] не в eff_mask): маршрут
 -- такое условие игнорирует (node.conns-гейт в R.pick_exit), GUI гасит его предикат-
 -- виджеты. Реордер/удаление оставляем активными — стейл можно снять или переставить.
-local function add_cond_row(parent, key, entry, idx, cond, count, stale, lit)
+local function add_cond_row(parent, key, entry, idx, cond, count, stale, lit, srcinfo)
   local sfx = "-" .. entry .. "-" .. idx
   local row = row_card(parent, true, lit and FRAME_LIT or FRAME_NORMAL)
   add_reorder(row, GUI.CN .. "up" .. sfx, GUI.CN .. "dn" .. sfx, idx > 1, idx < count)
@@ -237,7 +271,7 @@ local function add_cond_row(parent, key, entry, idx, cond, count, stale, lit)
   -- siga (левый операнд): только сигнал, с вайлдкардами each/any/everything, без константы.
   add_operand_slot(row, key, entry, idx, "siga",
     { use_signal = true, signal = cond.signal },
-    { allow_wildcards = true, allow_constant = false }, not stale)
+    { allow_wildcards = true, allow_constant = false }, not stale, cond, srcinfo)
 
   local dd = row.add{ type = "drop-down", name = GUI.CN .. "cmp" .. sfx,
     items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
@@ -249,14 +283,16 @@ local function add_cond_row(parent, key, entry, idx, cond, count, stale, lit)
   -- подокно «Or set a constant»). gglib сам рисует лицо слота — сигнал или число.
   add_operand_slot(row, key, entry, idx, "sigb",
     { use_signal = cond.use_signal, signal = cond.second_signal, constant = cond.constant },
-    { allow_wildcards = false, allow_constant = true }, not stale)
+    { allow_wildcards = false, allow_constant = true }, not stale, cond, srcinfo)
 
+  -- крестик — как у дока: прозрачная подложка, проявляется при наведении
   local del = row.add{ type = "sprite-button", name = GUI.CN .. "del" .. sfx,
-    style = "dark_button", sprite = "utility/close",
+    style = "frame_action_button", sprite = "utility/close",
+    hovered_sprite = "utility/close_black", clicked_sprite = "utility/close",
     tooltip = { "gofarovich-scl-gui.del-cond" } }
-  del.style.width = 16
-  del.style.height = 36
-  del.style.padding = 0
+  del.style.size = 20
+  del.style.left_margin = 4   -- воздух перед крестиком
+  del.style.right_margin = 4
 
   return row.parent  -- box-карточка (для живой смены заливки в on_tick)
 end
@@ -284,8 +320,17 @@ local function add_conditions_panel(parent, node)
   inner.style.vertical_spacing = 2
   inner.style.horizontally_stretchable = true
 
-  local signals = Circuit.read_cached(node)
   local key = G.key_of_tile(node.x, node.y)  -- target для слотов-операндов gglib
+  -- подключённость проводов: гасит галочки R/G у операндов
+  local srcinfo
+  do
+    local W = defines.wire_connector_id
+    local function conn(id)
+      local c = node.entity.get_wire_connector(id, false)
+      return (c and #c.connections > 0) and true or false
+    end
+    srcinfo = { wr = conn(W.circuit_red), wg = conn(W.circuit_green) }
+  end
   local rows = {}  -- {box, entry, idx, lit, lit_tick} — для живой подсветки в on_tick
   local cats = R.cat_order_list(node)
   for ci, entry in ipairs(cats) do
@@ -294,28 +339,20 @@ local function add_conditions_panel(parent, node)
     for i, cond in ipairs(list) do
       local conn = G.CONN[entry][cond.exit]
       local stale = not (conn and node.conns[conn])
-      local lit = (not stale) and R.cond_true(signals, cond)
-      local box = add_cond_row(inner, key, entry, i, cond, #list, stale, lit)
+      local lit = (not stale) and R.cond_eval(node, cond)
+      local box = add_cond_row(inner, key, entry, i, cond, #list, stale, lit, srcinfo)
       rows[#rows + 1] = { box = box, entry = entry, idx = i,
         lit = lit, lit_tick = lit and game.tick or nil }
     end
   end
 
   -- «New condition» — в том же списке, под условиями (скроллится вместе с ними).
+  -- Галочки «read next cart content» больше нет: с галочками-источниками C у
+  -- операндов она потеряла смысл — payload входящей читается всегда (пер-условие).
   local add = inner.add{ type = "button", name = GUI.NEWCOND,
     caption = { "gofarovich-scl-gui.new-cond" } }
   add.style.horizontally_stretchable = true
-  -- add.style.font_color = { 1, 1, 1 }
   add.style.height = 32   -- стандартная ~28 + 20
-
-  -- read next — фиксирован под скроллом (всегда виден).
-  local foot = panel.add{ type = "flow", direction = "vertical" }
-  foot.style.padding = 6
-  foot.style.vertical_spacing = 2
-  foot.style.horizontally_stretchable = true
-  foot.add{ type = "line" }
-  foot.add{ type = "checkbox", name = GUI.READ_NEXT,
-    caption = { "gofarovich-scl-gui.read-next" }, state = node.read_next == true }
 
   return rows
 end
@@ -449,13 +486,13 @@ function GUI.on_tick()
   for _, st in pairs(live) do
     local node = st.key and storage.rails[st.key]
     if node and node.entity and node.entity.valid then
-      local signals = Circuit.read_cached(node)
       for _, r in ipairs(st.rows) do
         if r.box and r.box.valid then
           local cond = R.cond_get(node, r.entry, r.idx)
           local conn = cond and G.CONN[r.entry][cond.exit]
           local stale = not (conn and node.conns[conn])
-          if cond and (not stale) and R.cond_true(signals, cond) then
+          -- cond_eval: источники операндов (R/G/Cart) как в маршруте
+          if cond and (not stale) and R.cond_eval(node, cond) then
             r.lit_tick = tick
           end
           local want = r.lit_tick ~= nil and (tick - r.lit_tick) < LIT_HOLD
@@ -573,11 +610,26 @@ function GUI.register_events()
     elseif name == GUI.CONDITIONS then
       node.conditions_on = el.state
       GUI.open(player, node)
-    elseif name == GUI.READ_NEXT then
-      node.read_next = el.state  -- без пересборки
     elseif name:sub(1, #GUI.CONN_CHECK) == GUI.CONN_CHECK then
       R.set_conn(node, name:sub(#GUI.CONN_CHECK + 1), el.state)
       GUI.open(player, node)
+    else
+      -- галочки источников операндов: l/r + r/g/c (lr/lg/lc/rr/rg/rc).
+      -- Без пересборки — состояние уже на элементе. У легаси-условия таблицы
+      -- источников нет — материализуем со «все три» (прежняя семантика).
+      local field, entry, idx = parse_cn(name)
+      if not field then return end
+      local side, letter = field:match("^([lr])([rgc])$")
+      if not side then return end
+      local cond = R.cond_get(node, entry, idx)
+      if not cond then return end
+      local skey = (side == "l") and "lsrc" or "rsrc"
+      local src = cond[skey]
+      if not src then
+        src = { r = true, g = true, cart = true }
+        cond[skey] = src
+      end
+      src[(letter == "c") and "cart" or letter] = el.state
     end
   end)
 
@@ -590,7 +642,12 @@ function GUI.register_events()
   Events.on(defines.events.on_gui_value_changed, function(e) SP.on_value(e) end)
   Events.on(defines.events.on_gui_closed,        function(e) SP.on_closed(e) end)
   -- result: { signal=SignalID } | { constant=N } | nil(очистить). changed=false → cancel.
+  -- Колбэк ЕДИНЫЙ на мод: слоты окна дока кодируют target.dock — диспатчим туда.
   SP.set_on_pick(function(player, target, result, changed)
+    if target and target.dock then
+      GUIDock.on_pick(player, target, result, changed)
+      return
+    end
     local node = storage.rails[target.key]
     if not (node and node.entity and node.entity.valid) then return end
     if changed then

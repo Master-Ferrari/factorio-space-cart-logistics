@@ -52,6 +52,31 @@ function Circuit.read(node)
   return merged
 end
 
+-- Прочитать ОДИН провод сущности (условия дока: у операндов свои галочки R/G).
+-- Возвращает { [type/name/quality] = count }, либо nil если провод НЕ ПОДКЛЮЧЁН
+-- (nil ≠ пустая таблица: неподключённая галочка гаснет в GUI и не участвует в сумме).
+function Circuit.read_wire(entity, wire_id)
+  if not (entity and entity.valid) then return nil end
+  local connector = entity.get_wire_connector(wire_id, false)
+  if not (connector and #connector.connections > 0) then return nil end
+  local merged = {}
+  local sigs = entity.get_signals(wire_id)
+  if sigs then
+    for _, s in ipairs(sigs) do
+      local key = Circuit.signal_key(s.signal)
+      merged[key] = (merged[key] or 0) + s.count
+    end
+  end
+  return merged
+end
+
+-- Оба провода раздельно (red, green) — в отличие от Circuit.read, НЕ мерджим:
+-- источники R и G в условиях дока выбираются независимо.
+function Circuit.read_split(entity)
+  return Circuit.read_wire(entity, defines.wire_connector_id.circuit_red),
+         Circuit.read_wire(entity, defines.wire_connector_id.circuit_green)
+end
+
 -- Снять read-next секцию с комбинатора рельса. Payload больше туда не пишется (см. выше),
 -- функция нужна для очистки СТАРЫХ секций, записанных прежней версией (миграция).
 function Circuit.clear_payload(node)
@@ -81,6 +106,49 @@ function Circuit.read_cached(node)
   local signals = Circuit.read(node) or {}
   cache[key] = { tick = tick, signals = signals }
   return signals
+end
+
+-- ── источники операндов (галочки R/G/Cart — рельс и док) ────────────
+-- Раздельное чтение источников рельса с кэшем на тайл-на-тик (те же
+-- соображения, что у read_cached): red/green — провода (nil = не подключён),
+-- cart — груз ВХОДЯЩЕЙ каретки (storage.tile_incoming, наполняется read-next).
+local scache = {}  -- [x:y] = { tick, red, green, cart }
+
+function Circuit.read_split_cached(node)
+  if not (node and node.entity and node.entity.valid) then return nil, nil, nil end
+  local key = node.x .. ":" .. node.y
+  local c = scache[key]
+  local tick = game.tick
+  if c and c.tick == tick then return c.red, c.green, c.cart end
+  local red, green = Circuit.read_split(node.entity)
+  local cart
+  local inc = storage.tile_incoming and storage.tile_incoming[node.x .. "," .. node.y]
+  if inc then
+    cart = {}
+    for _, e in ipairs(inc) do cart[e.key] = (cart[e.key] or 0) + e.count end
+  end
+  scache[key] = { tick = tick, red = red, green = green, cart = cart }
+  return red, green, cart
+end
+
+-- Таблица сигналов операнда = сумма выбранных источников. src = {r, g, cart};
+-- src == nil — ЛЕГАСИ-условие рельса без галочек: читаем все три (тождественно
+-- прежнему слитому чтению red+green+payload). Отсутствующий источник (провод не
+-- подключён / груза нет) даёт 0. Одиночный источник отдаём без копии; ни одного
+-- → пустая таблица («ни одной галочки → читаем 0»).
+local EMPTY = {}
+function Circuit.operand_table(src, red, green, cart)
+  local parts, n = {}, 0
+  if (src == nil or src.r) and red then n = n + 1; parts[n] = red end
+  if (src == nil or src.g) and green then n = n + 1; parts[n] = green end
+  if (src == nil or src.cart) and cart then n = n + 1; parts[n] = cart end
+  if n == 0 then return EMPTY end
+  if n == 1 then return parts[1] end
+  local merged = {}
+  for i = 1, n do
+    for k, v in pairs(parts[i]) do merged[k] = (merged[k] or 0) + v end
+  end
+  return merged
 end
 
 return Circuit

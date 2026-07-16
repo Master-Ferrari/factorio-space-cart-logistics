@@ -16,6 +16,7 @@ local R = require("scripts.rails")
 local C = require("scripts.convoys")
 local Docks = require("scripts.docks")
 local GUI = require("scripts.gui")
+local GUIDock = require("scripts.gui_dock")
 local Events = require("scripts.events")
 local Commands = require("scripts.commands")
 local DebugRails = require("scripts.debug_rails")
@@ -90,6 +91,7 @@ local function on_built(event)
     C.cart_register(e)
   elseif e.name == Docks.DOCK then
     Docks.dock_add(e)
+    Docks.apply_blueprint_tags(e, event.tags)  -- условия захвата из чертежа
   end
 end
 
@@ -122,6 +124,12 @@ local function on_removed(event)
         local stack = cart.inv[i]
         if stack.valid_for_read then event.buffer.insert(stack) end
       end
+    end
+    -- каретка на доке: груз лежит в сундуке-компаньоне — тоже добытчику
+    -- (buffer nil при смерти → гибнет); сундук сносится тут же, синхронно —
+    -- ленивый клинап дока увидел бы запись каретки уже удалённой
+    if cart and cart.docked then
+      Docks.drain_held_cargo(cart.docked, event.buffer)
     end
     C.cart_unregister(e)
   elseif e.name == Docks.DOCK then
@@ -162,11 +170,14 @@ local function on_cloned(event)
       node.conditions_on = snode.conditions_on
       node.cond_lists = util.table.deepcopy(snode.cond_lists) or {}
       node.cat_order = util.table.deepcopy(snode.cat_order)
-      node.read_next = snode.read_next
-      R.rail_update(key)
+      R.rail_update_around(key)  -- скопированный mode/manual_mask виден авто-соседям
     end
   elseif dst.name == Docks.DOCK then
     Docks.dock_add(dst)  -- свежий старт: пойманная каретка/курс не клонируются
+    local sdock = src and src.valid
+      and storage.docks and storage.docks[G.key_of_tile(G.tile_of(src.position))]
+    local ddock = storage.docks[G.key_of_tile(G.tile_of(dst.position))]
+    Docks.copy_settings(sdock, ddock)  -- условия захвата — пользовательский ввод
   elseif dst.name == CART then
     local node = storage.rails[G.key_of_tile(G.tile_of(dst.position))]
     if not (node and node.eff_mask ~= 0) then
@@ -211,15 +222,23 @@ local function paste_rail_settings(snode, dkey)
   dnode.conditions_on = snode.conditions_on
   dnode.cond_lists = util.table.deepcopy(snode.cond_lists) or {}
   dnode.cat_order = util.table.deepcopy(snode.cat_order)
-  dnode.read_next = snode.read_next
-  R.rail_update(dkey)    -- пересчёт eff_mask + морф (+ блэкаут, если вставили пусто)
+  R.rail_update_around(dkey)  -- пересчёт eff_mask + морф + авто-соседи (+ блэкаут, если вставили пусто)
   GUI.refresh_key(dkey)  -- rail_update дёргает хук лишь при смене геометрии, условия — нет
 end
 
 local function on_settings_pasted(event)
   local src, dst = event.source, event.destination
-  if not (src and src.valid and dst and dst.valid
-          and IS_RAIL[src.name] and IS_RAIL[dst.name]) then return end
+  if not (src and src.valid and dst and dst.valid) then return end
+  -- док→док: один прототип, нативная вставка приходит штатно (в отличие от рельсов)
+  if src.name == Docks.DOCK and dst.name == Docks.DOCK then
+    local dkey = G.key_of_tile(G.tile_of(dst.position))
+    local sdock = storage.docks and storage.docks[G.key_of_tile(G.tile_of(src.position))]
+    local ddock = storage.docks and storage.docks[dkey]
+    Docks.copy_settings(sdock, ddock)
+    GUIDock.refresh_key(dkey)  -- окно цели могло быть открыто — перерисовать
+    return
+  end
+  if not (IS_RAIL[src.name] and IS_RAIL[dst.name]) then return end
   local snode = storage.rails[G.key_of_tile(G.tile_of(src.position))]
   paste_rail_settings(snode, G.key_of_tile(G.tile_of(dst.position)))
 end
@@ -244,6 +263,9 @@ local function on_setup_blueprint(event)
     if entity.valid and IS_RAIL[entity.name] then
       local node = storage.rails[G.key_of_tile(G.tile_of(entity.position))]
       if node then bp.set_blueprint_entity_tags(index, R.blueprint_tags(node)) end
+    elseif entity.valid and entity.name == Docks.DOCK then
+      local d = storage.docks and storage.docks[G.key_of_tile(G.tile_of(entity.position))]
+      if d then bp.set_blueprint_entity_tags(index, Docks.blueprint_tags(d)) end
     end
   end
 end
@@ -262,6 +284,8 @@ local function ensure_storage()
   storage.copy_rail = storage.copy_rail or {}  -- player.index -> key тайла-источника копипаста
   storage.tile_incoming = storage.tile_incoming or {}  -- key тайла -> payload входящей каретки (read-next 6h)
   storage.docks = storage.docks or {}          -- key тайла -> док (M7, scripts/docks.lua)
+  storage.dock_gui_open = storage.dock_gui_open or {}  -- player.index -> key дока (окно условий)
+  storage.dock_gui_live = storage.dock_gui_live or {}  -- player.index -> { key, rows } (подсветка)
 end
 
 -- Пересборка рельсов из сущностей мира (при апдейте мода старый формат storage
@@ -277,7 +301,7 @@ local function rebuild_world()
     saved[key] = {
       mode = node.mode, manual_mask = node.manual_mask,
       conditions_on = node.conditions_on, cond_lists = node.cond_lists,
-      cat_order = node.cat_order, read_next = node.read_next,
+      cat_order = node.cat_order,
     }
   end
   storage.rails = {}
@@ -304,7 +328,6 @@ local function rebuild_world()
         mode = (s and s.mode) or "auto", manual_mask = s and s.manual_mask,
         conditions_on = (s and s.conditions_on) or false, eff_mask = 0,
         cond_lists = (s and s.cond_lists) or {}, cat_order = s and s.cat_order,
-        read_next = (s and s.read_next) or false,
       }
     end
   end
@@ -320,6 +343,9 @@ local function rebuild_world()
   C.read_next_clear_all()
   -- доки — после слоя кареток: пойманная каретка релинкуется по unit_number.
   Docks.rebuild()
+  -- окна дока закрываем: апдейт мода мог сменить схему имён элементов —
+  -- клики по стейл-окну молча терялись бы. Игрок просто откроет заново.
+  for _, player in pairs(game.players) do GUIDock.close(player) end
 end
 
 script.on_init(ensure_storage)
@@ -403,6 +429,7 @@ script.on_event(defines.events.on_tick, function()
   C.on_tick()
   Docks.on_tick()       -- после C.on_tick: курсоры кареток уже сдвинуты этим тиком
   GUI.on_tick()
+  GUIDock.on_tick()     -- после Docks.on_tick: подсветка по свежему d.watch
   DebugRails.on_tick()  -- после C.on_tick: перекраска по свежей occ этого тика
 end)
 
@@ -428,7 +455,11 @@ script.on_event("gofarovich-scl-open-cart", function(event)
   if not player then return end
   local sel = player.selected
   if not (sel and sel.valid and sel.name == CART) then return end
-  local inv = C.cart_inventory(sel.unit_number)
+  -- каретка на доке: её груз физически в сундуке-компаньоне (cart.inv пуст) —
+  -- E показывает сундук, игрок видит то же, что видят манипуляторы
+  local cart = storage.carts[sel.unit_number]
+  local inv = cart and cart.docked and Docks.held_inventory(cart.docked)
+    or C.cart_inventory(sel.unit_number)
   if not inv then return end
   if player.opened == inv then  -- E по той же каретке при открытом окне = закрыть
     player.opened = nil         -- on_gui_closed сыграет звук закрытия
@@ -456,18 +487,12 @@ script.on_event("gofarovich-scl-reverse-cart", function(event)
   end
 end)
 
--- Док — constant-combinator: подавляем его нативное окно (логистические секции
--- дока не используются). Свой GUI дока (условия захвата/отпускания) — шаг 4 M7.
-Events.on(defines.events.on_gui_opened, function(event)
-  if event.gui_type ~= defines.gui_type.entity then return end
-  local e = event.entity
-  if not (e and e.valid and e.name == Docks.DOCK) then return end
-  local player = game.get_player(event.player_index)
-  if player then player.opened = nil end
-end)
-
 -- GUI тайла (M6) и его on_gui_* события — в scripts/gui.lua.
 GUI.register_events()
+
+-- GUI дока (M7 шаг 4, условия захвата) — scripts/gui_dock.lua: перехват клика по
+-- доку (нативное окно комбинатора → наше), правки условий, живая подсветка.
+GUIDock.register_events()
 
 -- Отладочные /scl-* команды — в scripts/commands.lua.
 Commands.register()

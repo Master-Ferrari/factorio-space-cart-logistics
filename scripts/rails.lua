@@ -6,7 +6,9 @@
 -- класса — запись direction, между классами — пересоздание с переносом проводов.
 -- storage.rails[key] = { x, y, entity, conns = {["N-S"]=true,...}, mask, eff_mask,
 --   mode, auto_mask, manual_mask, conditions_on(bool),
---   cond_lists = { [entry] = { {exit,...предикат}, ... } }, read_next }
+--   cond_lists = { [entry] = { {exit,...предикат}, ... } } }
+-- (поле read_next упразднено v0.12: payload входящей каретки читается всегда,
+-- выбор — галочкой-источником C пер-условие; старое поле в сейвах игнорируется)
 
 local G = require("scripts.geometry")
 local Circuit = require("scripts.circuit")
@@ -72,11 +74,32 @@ local function apply_entity_mask(node, mask)
   return true
 end
 
--- Авто-маска тайла: соединяем все пары присутствующих сторон-соседей.
+-- Тянется ли из маски хоть одно соединение на сторону side.
+local function mask_touches(mask, side)
+  for _, other in ipairs(G.SIDES) do
+    local conn = G.CONN[side][other]
+    if conn and bit32.band(mask, bit32.lshift(1, G.CONN_BIT[conn])) ~= 0 then
+      return true
+    end
+  end
+  return false
+end
+
+-- Сосед по side «отвечает взаимностью»: auto-сосед — всегда (auto-тайлы достраивают
+-- друг к другу), manual-сосед — только если его ручная маска выходит на нашу сторону.
+local function neighbor_links_back(key, side)
+  local nb = storage.rails[G.neighbor_tile(key, side)]
+  if not nb then return false end
+  if nb.mode ~= "manual" then return true end
+  return mask_touches(nb.manual_mask or 0, G.OPP[side])
+end
+
+-- Авто-маска тайла: соединяем все пары сторон, чьи соседи тянут связь к нам
+-- (manual-сосед без выхода на нашу сторону невидим для авто-режима).
 local function compute_auto_mask(key)
   local present = {}
   for _, side in ipairs(G.SIDES) do
-    present[side] = storage.rails[G.neighbor_tile(key, side)] ~= nil
+    present[side] = neighbor_links_back(key, side)
   end
   local mask = 0
   for i = 1, #G.SIDES do
@@ -130,13 +153,16 @@ local WILDCARD = {
   ["signal-everything"] = "every",
 }
 
-local function cond_true(signals, cond)
+-- rsignals (опционально) — таблица сигналов ПРАВОГО операнда, если он читается из
+-- другого источника, чем левый (условия дока: галочки R/G/Cart у каждого операнда
+-- свои). nil → правый читает ту же таблицу, что и левый (рельсовые условия).
+local function cond_true(signals, cond, rsignals)
   if not (cond and cond.signal and cond.signal.name) then return false end
   local f = CMP[cond.comparator or "="]
   if not f then return true end
   local right
   if cond.use_signal and cond.second_signal and cond.second_signal.name then
-    right = signal_val(signals, cond.second_signal)
+    right = signal_val(rsignals or signals, cond.second_signal)
   else
     right = cond.constant or 0
   end
@@ -155,10 +181,26 @@ R.cond_true = cond_true
 
 -- Шаблон нового условия входа. exit — один из 3 поворотов входа (задаётся
 -- при создании из GUI/команды). Предикат по умолчанию пустой → невыполнено (false),
--- пока игрок не выберет сигнал.
+-- пока игрок не выберет сигнал. lsrc/rsrc — источники операндов {r, g, cart}
+-- (как у дока; cart = груз ВХОДЯЩЕЙ каретки, tile_incoming):
+-- дефолт «все три» тождественен прежнему слитому чтению red+green+payload.
+-- У легаси-условий (до галочек) lsrc/rsrc нет — nil трактуется как «все три»
+-- (Circuit.operand_table), таблица материализуется при первой правке в GUI.
 function R.new_cond(exit)
   return { exit = exit, name = "", signal = nil, comparator = "=",
-           use_signal = false, second_signal = nil, constant = 0 }
+           use_signal = false, second_signal = nil, constant = 0,
+           lsrc = { r = true, g = true, cart = true },
+           rsrc = { r = true, g = true, cart = true } }
+end
+
+-- Оценка условия с учётом источников операндов: провода рельса раздельно +
+-- груз входящей каретки (кэш на тайл-на-тик — Circuit.read_split_cached).
+function R.cond_eval(node, cond)
+  local red, green, cart = Circuit.read_split_cached(node)
+  local ltab = Circuit.operand_table(cond.lsrc, red, green, cart)
+  local rtab = cond.use_signal
+    and Circuit.operand_table(cond.rsrc, red, green, cart) or nil
+  return cond_true(ltab, cond, rtab)
 end
 
 -- ── правки списков условий (GUI 6f / debug-команды) ─────────────────
@@ -258,6 +300,16 @@ function R.rail_update(key)
   if (changed or swapped) and R.on_geometry_changed then R.on_geometry_changed(key) end
 end
 
+-- Пересчёт тайла и его 4 соседей. Обязателен после смены mode/manual_mask:
+-- авто-маска соседей зависит от них (neighbor_links_back). Каскада нет — авто-маска
+-- читает у соседа только пользовательский ввод (mode/manual_mask), не вычисленное.
+function R.rail_update_around(key)
+  R.rail_update(key)
+  for _, side in ipairs(G.SIDES) do
+    R.rail_update(G.neighbor_tile(key, side))
+  end
+end
+
 -- ── правки из GUI (6b) ──────────────────────────────────────────────
 -- auto↔manual. При первом входе в manual сеем маску текущим eff (видимое не прыгает);
 -- дальше ручная маска персистит между переключениями.
@@ -268,7 +320,7 @@ function R.set_mode(node, manual)
   else
     node.mode = "auto"
   end
-  R.rail_update(key_of(node))
+  R.rail_update_around(key_of(node))
 end
 
 -- Включить/выключить одно соединение в ручной маске.
@@ -278,7 +330,7 @@ function R.set_conn(node, conn, on)
   local bitv = bit32.lshift(1, b)
   local m = node.manual_mask or 0
   node.manual_mask = on and bit32.bor(m, bitv) or bit32.band(m, bit32.bnot(bitv))
-  R.rail_update(key_of(node))
+  R.rail_update_around(key_of(node))
 end
 
 -- Пересоздать сущность тайла на том же месте (тот же прототип/direction), перенеся
@@ -308,12 +360,9 @@ function R.rail_add(entity)
   storage.rails[key] = {
     x = tx, y = ty, entity = entity, conns = {}, mask = 0,
     mode = "auto", manual_mask = nil, conditions_on = false, eff_mask = 0,
-    cond_lists = {}, read_next = false,
+    cond_lists = {},
   }
-  R.rail_update(key)
-  for _, side in ipairs(G.SIDES) do
-    R.rail_update(G.neighbor_tile(key, side))
-  end
+  R.rail_update_around(key)
 end
 
 function R.rail_remove(entity)
@@ -344,7 +393,6 @@ function R.blueprint_tags(node)
     scl_conditions_on = node.conditions_on,
     scl_cond_lists = node.cond_lists,
     scl_cat_order = node.cat_order,
-    scl_read_next = node.read_next,
   }
 end
 
@@ -391,8 +439,7 @@ function R.apply_blueprint_tags(node, tags, built_mask, built_dir, built_mirror)
     for i, entry in ipairs(tags.scl_cat_order) do order[i] = rot_side(entry) end
     node.cat_order = order
   end
-  if tags.scl_read_next ~= nil then node.read_next = tags.scl_read_next end
-  R.rail_update(key_of(node))
+  R.rail_update_around(key_of(node))  -- теги меняют mode/manual_mask → соседи тоже
 end
 
 -- Войдя со стороны entry, выбрать выход.
@@ -402,16 +449,16 @@ end
 --    условия (частый случай — их нет/выключены, читать незачем).
 -- 2) Иначе дефолт: прямо → направо → налево → стоп.
 --
--- read-next (6h): груз входящей каретки подмешивается прямо в Circuit.read
--- (storage.tile_incoming), поэтому read_cached уже возвращает сеть+payload — здесь
--- отдельного проброса не нужно. Так payload видят и маршрут, и живая подсветка GUI.
+-- Источники сигналов условия — галочки R/G/Cart операндов (R.cond_eval):
+-- провода читаются раздельно, Cart = груз входящей каретки (tile_incoming,
+-- наполняется read-next). Дефолт/легаси «все три» тождественен прежнему слитому
+-- чтению. Payload видят и маршрут, и живая подсветка GUI (тот же cond_eval).
 function R.pick_exit(node, entry)
   local list = node.conditions_on and node.cond_lists and node.cond_lists[entry]
   if list and #list > 0 then
-    local signals = Circuit.read_cached(node)
     for _, cond in ipairs(list) do
       local conn = G.CONN[entry][cond.exit]
-      if conn and node.conns[conn] and cond_true(signals, cond) then
+      if conn and node.conns[conn] and R.cond_eval(node, cond) then
         return cond.exit
       end
     end

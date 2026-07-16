@@ -194,13 +194,80 @@ function Commands.register()
     local n = 0
     for key, d in pairs(storage.docks or {}) do
       n = n + 1
-      player.print(("[SCL] dock @ %s dir=%s target=%s enabled=%s state=%s arm=%d held=%s heading=%s watch=%s")
+      player.print(("[SCL] dock @ %s dir=%s target=%s enabled=%s state=%s arm=%d held=%s heading=%s watch=%s conds=%d")
         :format(key, tostring(d.dir), tostring(d.tkey), tostring(d.enabled),
                 tostring(d.state), d.arm or 0, tostring(d.held), tostring(d.heading),
-                tostring(d.watch)))
+                tostring(d.watch), d.grab_conds and #d.grab_conds or 0))
     end
     if n == 0 then player.print("[SCL] no docks") end
   end)
+
+  -- M7 шаги 4–5: условия дока без GUI (тест ДНФ/источников). which: grab|drop.
+  -- /scl-dock-cond-add [or] <item-signal|any|every|each> <op> <const> [rgc]
+  --   or    — связка с предыдущей строкой ИЛИ (без него — И);
+  --   rgc   — источники левого операнда: подмножество букв r/g/c (деф. rgc).
+  --   /scl-dock-cond-add iron-plate > 5          — сеть+груз: iron-plate > 5
+  --   /scl-dock-cond-add or every = 0 c          — ИЛИ каретка пуста (только Cart)
+  --   /scl-dock-drop-cond-add every = 0 c        — опускать, когда пойманная пуста
+  local function dock_cond_add(cmd, which, usage)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local key = G.key_of_tile(G.tile_of(player.position))
+    local d = storage.docks and storage.docks[key]
+    if not d then player.print("[SCL] No dock under you (" .. key .. ").") return end
+    local args = {}
+    for w in string.gmatch(cmd.parameter or "", "%S+") do args[#args + 1] = w end
+    local link = "and"
+    if args[1] and args[1]:lower() == "or" then
+      link = "or"
+      table.remove(args, 1)
+    end
+    if not (args[1] and args[2] and args[3]) then
+      player.print("[SCL] Usage: /" .. usage .. " [or] <signal|any|every|each> <op> <const> [rgc]")
+      return
+    end
+    local WILD = { each = "signal-each", any = "signal-anything", anything = "signal-anything",
+                   every = "signal-everything", everything = "signal-everything" }
+    local cond = Docks.cond_add(d, which)
+    cond.link = link
+    local w = WILD[args[1]:lower()]
+    cond.signal = w and { type = "virtual", name = w } or { type = "item", name = args[1] }
+    cond.comparator = args[2]
+    cond.constant = tonumber(args[3]) or 0
+    if args[4] then
+      local s = args[4]:lower()
+      cond.lsrc = { r = s:find("r") ~= nil, g = s:find("g") ~= nil, cart = s:find("c") ~= nil }
+    end
+    local list = Docks.conds(d, which)
+    player.print(("[SCL] dock @ %s %s: %s%s %s %s [src %s%s%s]  (#%d)")
+      :format(key, which, (link == "or") and "OR " or (#list > 1 and "AND " or ""),
+              cond.signal.name, cond.comparator, cond.constant,
+              cond.lsrc.r and "r" or "", cond.lsrc.g and "g" or "", cond.lsrc.cart and "c" or "",
+              #list))
+  end
+
+  commands.add_command("scl-dock-cond-add",
+    "Add a grab condition to the dock under you: [or] <signal|any|every|each> <op> <const> [rgc]",
+    function(cmd) dock_cond_add(cmd, "grab", "scl-dock-cond-add") end)
+
+  commands.add_command("scl-dock-drop-cond-add",
+    "Add a release condition to the dock under you: [or] <signal|any|every|each> <op> <const> [rgc]",
+    function(cmd) dock_cond_add(cmd, "drop", "scl-dock-drop-cond-add") end)
+
+  local function dock_cond_clear(cmd, which)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local key = G.key_of_tile(G.tile_of(player.position))
+    local d = storage.docks and storage.docks[key]
+    if not d then player.print("[SCL] No dock under you (" .. key .. ").") return end
+    if which == "drop" then d.drop_conds = nil else d.grab_conds = nil end
+    player.print("[SCL] cleared " .. which .. " conditions @ " .. key)
+  end
+
+  commands.add_command("scl-dock-cond-clear", "Clear grab conditions on the dock under you",
+    function(cmd) dock_cond_clear(cmd, "grab") end)
+  commands.add_command("scl-dock-drop-cond-clear", "Clear release conditions on the dock under you",
+    function(cmd) dock_cond_clear(cmd, "drop") end)
 
   commands.add_command("scl-cond-clear", "Clear all routing conditions on the rail under you", function(cmd)
     local player = game.get_player(cmd.player_index)

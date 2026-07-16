@@ -184,6 +184,26 @@ local dock_arm = {
   },
 }
 
+-- Сундук-компаньон дока (M7 «док = хранилище»): невидимый контейнер на тайле
+-- дока, живёт ТОЛЬКО пока каретка поймана (runtime-создание в docks.lua). Груз
+-- каретки на время дока физически переезжает сюда (не синк двух инвентарей!) —
+-- манипуляторы кладут/берут ванильно. 5 слотов = максимум качества каретки;
+-- фактическое число слотов режется bar'ом под качество. Не-блюпринтный,
+-- невыбираемый (нет selection_box — клики идут в каретку/док), без коллизии.
+local dock_chest = {
+  type = "container",
+  name = "gofarovich-scl-dock-chest",
+  icon = GFX .. "dock-icon.png",
+  icon_size = 64,
+  hidden = true,
+  flags = { "placeable-neutral", "not-on-map", "not-blueprintable", "not-deconstructable" },
+  max_health = 100,
+  collision_mask = { layers = {} },
+  collision_box = { { -0.1, -0.1 }, { 0.1, 0.1 } },
+  inventory_size = 5,
+  picture = util.empty_sprite(),
+}
+
 -- Один item на все 22 варианта. В руке ставит «крест» (маска 3 = N-S + E-W) —
 -- видимое превью; сразу после постройки скрипт морфит сущность под фактическую маску.
 local rail_item = {
@@ -377,7 +397,7 @@ local logistics_tech = {
   },
 }
 
-data:extend({ rail_stub, cart, dock, dock_arm, rail_item, cart_item, dock_item,
+data:extend({ rail_stub, cart, dock, dock_arm, dock_chest, rail_item, cart_item, dock_item,
               reverse_input, open_cart_input,
               copy_settings_input, paste_settings_input,
               rail_recipe, cart_recipe, dock_recipe, logistics_tech })
