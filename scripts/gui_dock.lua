@@ -9,10 +9,12 @@
 -- который диспатчит сюда по target.dock (GUIDock.on_pick; target.kind = панель).
 --
 -- Типы строк («+ Add condition» разворачивает меню выбора, как у поездов):
--- logic (сравнение сигналов, по умолчанию) и cart quality (качество каретки,
+-- logic (сравнение сигналов, по умолчанию), cart quality (качество каретки,
 -- числа 1..5, против конкретного качества или сигнала — пикер gglib в режиме
 -- exact_quality: обычный пикер сигналов, но вместо панели константы ряд «Or
--- select exact quality»; галочки R/G/C правого операнда активны при сигнале).
+-- select exact quality») и empty slots count (пустые слоты груза каретки против
+-- числа или сигнала — стандартный пикер сигнал+число). У числовых строк галочки
+-- R/G/C правого операнда активны только при сигнале.
 --
 -- Раскладка связок: строки-карточки с отступом слева; между соседними — кнопка
 -- И/ИЛИ (клик переключает): ИЛИ «главнее» — у левого края, И — с отступом (на
@@ -40,10 +42,15 @@ local LIT_HOLD     = 1
 GUIDock.FRAME = "gofarovich-scl-dock-gui"
 GUIDock.CLOSE = "gofarovich-scl-dock-close"
 GUIDock.SLOT  = "gofarovich-scl-dock-slot-"  -- + i: слот инвентаря дока (сундук)
+GUIDock.READC   = "gofarovich-scl-dock-readc"    -- галочка «читать содержимое»
+GUIDock.RELEASE = "gofarovich-scl-dock-release-btn"  -- «принудительно отпустить»
+GUIDock.PINVCHK   = "gofarovich-scl-dock-pinv-chk"    -- галочка «инвентарь» (окно игрока)
+GUIDock.PINVCLOSE = "gofarovich-scl-dock-pinv-close"  -- крестик окна инвентаря
+GUIDock.PSLOT     = "gofarovich-scl-dock-pslot-"      -- + i: слот инвентаря ИГРОКА
 GUIDock.DK    = "gofarovich-scl-dk-"  -- + <field>-<kind>-<idx>; kind: g=захват, d=отпускание
-                                      -- field: new/addlogic/addqual (меню типов условия) /
-                                      -- link/del/cmp/up/dn/lr/lg/lc/rr/rg/rc; qual — слот
-                                      -- качества квалити-строки (пикер gglib)
+                                      -- field: new/addlogic/addqual/addslots (меню типов) /
+                                      -- link/del/cmp/up/dn/lr/lg/lc/rr/rg/rc; qual/eslots —
+                                      -- правые операнды квалити-/слот-строк (пикеры gglib)
 
 local PANEL_W = 350  -- ширина одной панели; окно = две рядом
 local INDENT = 20    -- отступ карточек и И-кнопок; ИЛИ — у левого края
@@ -202,12 +209,14 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
   local spacer0 = row.add{ type = "empty-widget" }
   spacer0.style.horizontally_stretchable = true
 
-  if cond.ctype == "quality" then
-    -- квалити-строка: левый «операнд» зафиксирован (качество каретки, источник
-    -- задан панелью) — погашенный слот с иконкой «любое качество», без галочек
+  if cond.ctype == "quality" or cond.ctype == "slots" then
+    -- числовая строка: левый «операнд» зафиксирован (качество каретки / её
+    -- пустые слоты, источник задан панелью) — погашенный слот-иконка, без галочек
+    local is_q = cond.ctype == "quality"
+    local tipbase = is_q and "cond-quality-" or "cond-slots-"
     local anyq = row.add{ type = "sprite-button", style = "slot_button",
-      sprite = "utility/any_quality",
-      tooltip = { "gofarovich-scl-gui." .. (kind == "d" and "cond-quality-held" or "cond-quality-cart") } }
+      sprite = is_q and "utility/any_quality" or "utility/slots_view",
+      tooltip = { "gofarovich-scl-gui." .. tipbase .. (kind == "d" and "held" or "cart") } }
     anyq.style.size = 44
     anyq.enabled = false
 
@@ -216,20 +225,21 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
     dd.style.width = 50
     dd.style.height = 44
 
-    -- правый операнд: конкретное качество ИЛИ сигнал (пикер gglib exact_quality);
-    -- галочки R/G/C активны только при сигнале — конкретное качество источники
-    -- не читает (симметрично операнду-константе logic-строки)
+    -- правый операнд: quality — конкретное качество ИЛИ сигнал (пикер gglib
+    -- exact_quality), slots — число ИЛИ сигнал (стандартный пикер сигнал+число);
+    -- галочки R/G/C активны только при сигнале (симметрично операнду-константе)
     local wrap = row.add{ type = "flow", direction = "horizontal" }
     wrap.style.vertical_align = "center"
     wrap.style.horizontal_spacing = 2
     add_src_checks(wrap, "r", kind, idx, cond.rsrc or {}, wired_r, wired_g,
       cond.use_signal == true)
     SB.build(wrap, {
-      target = { dock = key, kind = kind, idx = idx, field = "qual" },
+      target = { dock = key, kind = kind, idx = idx, field = is_q and "qual" or "eslots" },
       value = { use_signal = cond.use_signal, signal = cond.second_signal,
-                quality = cond.qname },
+                quality = cond.qname, constant = cond.constant },
       size = 44,
-      exact_quality = true,
+      exact_quality = is_q,
+      allow_constant = not is_q,
     })
   else
     -- левый операнд: только сигнал (с вайлдкардами any/every/each)
@@ -313,7 +323,7 @@ end
 -- пересборки окна дока (позиции кнопок сдвигаются). storage.dock_gui_addmenu[pi]
 -- = which ("grab"/"drop") — для тоггла и подсветки кнопки.
 local ADDMENU = "gofarovich-scl-dock-addmenu"
-local MENU_W, MENU_H = 200, 78  -- оценка габаритов в GUI-юнитах (для флипа/клампа)
+local MENU_W, MENU_H = 200, 108  -- оценка габаритов в GUI-юнитах (для флипа/клампа)
 
 local function close_addmenu(player)
   local f = player.gui.screen[ADDMENU]
@@ -338,6 +348,7 @@ local function open_addmenu(player, which, loc)
   end
   opt("addlogic", "cond-type-logic")
   opt("addqual", "cond-type-quality")
+  opt("addslots", "cond-type-slots")
 
   -- позиция: location в ДИСПЛЕЙНЫХ пикселях → габариты умножаем на display_scale
   local scale = player.display_scale
@@ -380,22 +391,105 @@ local function slot_face(btn, stack)
   if btn.number ~= number then btn.number = number end
 end
 
+-- ── окно инвентаря ИГРОКА (галочка «инвентарь» в окне дока) ─────────
+-- Нативный инвентарь рядом не открыть (player.opened один — окно дока закрылось
+-- бы), поэтому своё окно: сетка слотов главного инвентаря, клик = обмен со
+-- стеком в руке (как у слотов дока) — предметы переносятся док↔рука↔инвентарь
+-- без сворачивания окна дока. Живое обновление лиц — on_tick (st.pslots);
+-- смена размера инвентаря (броня) — пересборка окна там же. Ставится слева от
+-- окна дока. Живёт, пока горит галочка (storage.dock_gui_pinv[pi]) и открыто
+-- окно дока.
+local PINV = "gofarovich-scl-dock-pinv"
+local PINV_COLS = 10
+
+local function close_pinv(player)
+  local f = player.gui.screen[PINV]
+  if f then f.destroy() end
+end
+
+local function open_pinv(player, st)
+  close_pinv(player)
+  st.pslots = nil
+  local inv = player.get_main_inventory()
+  if not inv then return end
+  local frame = player.gui.screen.add{ type = "frame", name = PINV, direction = "vertical" }
+  add_titlebar(frame, { "gofarovich-scl-gui.pinv-title" }, GUIDock.PINVCLOSE)
+  local content = frame.add{ type = "frame", style = "inside_deep_frame" }
+  local grid = content.add{ type = "table", column_count = PINV_COLS,
+    style = "filter_slot_table" }
+  st.pslots = {}
+  for i = 1, #inv do
+    local btn = grid.add{ type = "sprite-button", name = GUIDock.PSLOT .. i,
+      style = "inventory_slot" }
+    slot_face(btn, inv[i])
+    st.pslots[i] = btn
+  end
+  -- слева от окна дока (его location уже отрендерен); не влезает — от края
+  local dockf = player.gui.screen[GUIDock.FRAME]
+  local loc = dockf and dockf.location
+  if loc then
+    local scale = player.display_scale
+    local x = math.max(0, loc.x - math.floor((PINV_COLS * 40 + 32) * scale))
+    frame.location = { x, loc.y }
+  else
+    frame.auto_center = true
+  end
+  frame.bring_to_front()
+end
+
 -- Панель-подложка под слот-тайлинг (slot_button_deep_frame — как у ванильных
--- контейнеров и грида пикера gglib): видна ВСЕГДА, отцентрована по горизонтали,
+-- контейнеров и грида пикера gglib): видна ВСЕГДА, прижата к ЛЕВОМУ краю,
 -- ширина всегда 5 слотов (максимум качества). Слоты появляются, пока каретка
--- поймана — столько, сколько у каретки, слева направо (не центруем). Без
--- заголовков: назначение панели самоочевидно.
+-- поймана — столько, сколько у каретки, слева направо. Без заголовков:
+-- назначение панели самоочевидно. СПРАВА от слотов — управление доком:
+-- галочка «читать содержимое» (вывод содержимого разблокированного контейнера
+-- в провода — Docks.update_output) и кнопка «принудительно отпустить»
+-- (Docks.release в обход условий отпускания; активна только в loaded — живое
+-- обновление в on_tick, как у слотов).
 local SLOT_PX = 40
 local INV_SLOTS_MAX = 5
 
 local function add_inventory(body, d, st)
   local wrap = body.add{ type = "flow", direction = "horizontal" }
   wrap.style.horizontally_stretchable = true
-  wrap.style.horizontal_align = "center"
+  wrap.style.vertical_align = "center"
   local deep = wrap.add{ type = "frame", style = "slot_button_deep_frame",
     direction = "horizontal" }
   deep.style.minimal_width = SLOT_PX * INV_SLOTS_MAX
   deep.style.minimal_height = SLOT_PX
+
+  -- вертикальный разделитель сразу после инвентаря; управление — за ним,
+  -- по левому краю (отступы с обеих сторон = spacing панелей, 8)
+  local sep = wrap.add{ type = "line", direction = "vertical" }
+  sep.style.vertically_stretchable = true
+  sep.style.left_margin = 8
+  sep.style.right_margin = 8
+
+  local side = wrap.add{ type = "flow", direction = "vertical" }
+  side.style.vertical_spacing = 2
+  side.add{ type = "checkbox", name = GUIDock.READC,
+    state = d.read_contents and true or false,
+    caption = { "gofarovich-scl-gui.dock-read-contents" },
+    tooltip = { "gofarovich-scl-gui.dock-read-contents-tt" } }
+  local rel = side.add{ type = "button", name = GUIDock.RELEASE,
+    caption = { "gofarovich-scl-gui.dock-force-release" },
+    tooltip = { "gofarovich-scl-gui.dock-force-release-tt" } }
+  rel.style.height = 26
+  rel.enabled = (d.state == "loaded" and d.held) and true or false
+  st.release = rel
+
+  -- ещё столбец правее: галочка «инвентарь игрока» — его окно рядом
+  -- (open_pinv), окно дока не сворачивается — можно перекладывать предметы.
+  -- Столбец растянут на высоту строки → контент прижат к верху (на линии
+  -- галочки «читать содержимое»), а не по центру (vertical_align у wrap).
+  local side2 = wrap.add{ type = "flow", direction = "vertical" }
+  side2.style.left_margin = 8
+  side2.style.vertically_stretchable = true
+  st.pinvchk = side2.add{ type = "checkbox", name = GUIDock.PINVCHK,
+    state = (storage.dock_gui_pinv and storage.dock_gui_pinv[st.pi]) and true or false,
+    caption = { "gofarovich-scl-gui.pinv-open" },
+    tooltip = { "gofarovich-scl-gui.pinv-open-tt" } }
+
   local inv = cargo_inv(d)
   if not (d.held and inv) then return end  -- каретки нет — пустая панель
   local cart = storage.carts[d.held]
@@ -417,6 +511,8 @@ function GUIDock.close(player)
   local frame = player.gui.screen[GUIDock.FRAME]
   if frame then frame.destroy() end
   close_addmenu(player)
+  close_pinv(player)
+  if storage.dock_gui_pinv then storage.dock_gui_pinv[player.index] = nil end
   if storage.dock_gui_open then storage.dock_gui_open[player.index] = nil end
   if storage.dock_gui_live then storage.dock_gui_live[player.index] = nil end
 end
@@ -458,7 +554,7 @@ function GUIDock.open(player, d)
 
   -- инвентарь дока (сундук-компаньон) — над редакторами; st несёт ссылки на
   -- слоты и признак «была ли каретка» (смена → пересборка окна в on_tick)
-  local st = { key = key, held = d.held or false }
+  local st = { key = key, held = d.held or false, pi = player.index }
   add_inventory(body, d, st)
   body.add{ type = "line" }.style.margin = 4
 
@@ -480,6 +576,12 @@ function GUIDock.open(player, d)
   storage.dock_gui_open[player.index] = key
   storage.dock_gui_live[player.index] = st
   player.opened = frame
+  -- окно инвентаря игрока: живёт вместе с окном дока, пока горит галочка
+  if storage.dock_gui_pinv and storage.dock_gui_pinv[player.index] then
+    open_pinv(player, st)
+  else
+    close_pinv(player)
+  end
 end
 
 -- Переоткрыть окна дока key (структурные правки другим игроком / снос дока).
@@ -522,6 +624,28 @@ function GUIDock.on_tick()
       local player = game.get_player(pi)
       if player then GUIDock.open(player, d) end
     else
+      -- окно инвентаря игрока: живые лица (перенос предметов идёт мимо событий
+      -- GUI); смена размера инвентаря (броня) → пересборка окна
+      if st.pslots then
+        local player = game.get_player(pi)
+        local pinv = player and player.get_main_inventory()
+        if not pinv then
+          close_pinv(player)
+          st.pslots = nil
+        elseif #pinv ~= #st.pslots then
+          open_pinv(player, st)
+        else
+          for i, btn in ipairs(st.pslots) do
+            if btn.valid then slot_face(btn, pinv[i]) end
+          end
+        end
+      end
+      -- кнопка «принудительно отпустить»: активна только в базе хранения
+      -- (loaded; переходы состояний окно не пересобирают)
+      if st.release and st.release.valid then
+        local can = (d.state == "loaded" and d.held) and true or false
+        if st.release.enabled ~= can then st.release.enabled = can end
+      end
       -- живые лица и доступность слотов инвентаря (манипуляторы кладут/берут
       -- без событий GUI; лок/разлок — по состоянию стейт-машины)
       if st.slots then
@@ -578,6 +702,18 @@ function GUIDock.on_pick(player, target, result, changed)
         else
           cond.use_signal = false
           cond.qname = "normal"
+        end
+      elseif target.field == "eslots" then
+        -- правый операнд слот-строки: число или сигнал (как sigb logic-строки)
+        if result and result.constant ~= nil then
+          cond.use_signal = false
+          cond.constant = math.floor(result.constant)
+        elseif result and result.signal then
+          cond.use_signal = true
+          cond.second_signal = result.signal
+        else
+          cond.use_signal = false
+          cond.constant = 0
         end
       elseif target.field == "siga" then
         cond.signal = result and result.signal or nil  -- левый: только сигнал
@@ -644,6 +780,43 @@ function GUIDock.register_events()
     end
     local d = open_dock(event.player_index)
     if not d then return end
+    -- крестик окна инвентаря игрока: закрыть и погасить галочку в окне дока
+    if name == GUIDock.PINVCLOSE then
+      close_pinv(player)
+      if storage.dock_gui_pinv then storage.dock_gui_pinv[event.player_index] = nil end
+      local st = storage.dock_gui_live and storage.dock_gui_live[event.player_index]
+      if st then
+        st.pslots = nil
+        if st.pinvchk and st.pinvchk.valid then st.pinvchk.state = false end
+      end
+      return
+    end
+    -- слот инвентаря ИГРОКА: обмен со стеком в руке (как слоты дока)
+    if name:sub(1, #GUIDock.PSLOT) == GUIDock.PSLOT then
+      local i = tonumber(name:sub(#GUIDock.PSLOT + 1))
+      local inv = player.get_main_inventory()
+      local slot = inv and i and inv[i]
+      local cur = player.cursor_stack
+      if not (slot and cur) then return end
+      if cur.valid_for_read and slot.valid_for_read
+        and cur.name == slot.name and cur.quality == slot.quality then
+        local n = math.min(slot.prototype.stack_size - slot.count, cur.count)
+        if n > 0 then
+          slot.count = slot.count + n
+          cur.count = cur.count - n
+        end
+      else
+        cur.swap_stack(slot)
+      end
+      return  -- лица обновит on_tick
+    end
+    -- «принудительно отпустить»: Docks.release в обход условий отпускания
+    -- (та же логика, что /scl-dock-release); перерисовка не нужна — доступность
+    -- кнопки и слотов обновит on_tick по смене состояния
+    if name == GUIDock.RELEASE then
+      Docks.release(storage.dock_gui_open[event.player_index])
+      return
+    end
     -- слот инвентаря дока: обмен со стеком в руке — только в базовом состоянии
     -- хранения (loaded); в анимациях слоты и так погашены (enabled=false)
     if name:sub(1, #GUIDock.SLOT) == GUIDock.SLOT then
@@ -683,8 +856,10 @@ function GUIDock.register_events()
       for k, b in pairs((st and st.addbtns) or {}) do
         if b.valid then b.toggled = opening and KIND_WHICH[k] == which end
       end
-    elseif field == "addlogic" or field == "addqual" then
-      Docks.cond_add(d, which, field == "addqual" and "quality" or nil)
+    elseif field == "addlogic" or field == "addqual" or field == "addslots" then
+      local ctype = (field == "addqual" and "quality")
+        or (field == "addslots" and "slots") or nil
+      Docks.cond_add(d, which, ctype)
       GUIDock.open(player, d)  -- open закрывает всплывающее меню сам
     elseif field == "link" then
       Docks.cond_toggle_link(d, which, idx)
@@ -702,10 +877,29 @@ function GUIDock.register_events()
     -- слоты-операнды обрабатывает SB.on_click (gglib) в мультиплексоре
   end)
 
-  -- галочки источников: l/r + r/g/c. Без переоткрытия — состояние уже на элементе.
+  -- галочки: «читать содержимое» + источники l/r + r/g/c у операндов.
+  -- Без переоткрытия — состояние уже на элементе.
   Events.on(defines.events.on_gui_checked_state_changed, function(event)
     local el = event.element
     if not (el and el.valid) then return end
+    if el.name == GUIDock.READC then
+      local d = open_dock(event.player_index)
+      if d then d.read_contents = el.state end  -- вывод подхватит update_output
+      return
+    end
+    if el.name == GUIDock.PINVCHK then
+      local player = game.get_player(event.player_index)
+      storage.dock_gui_pinv = storage.dock_gui_pinv or {}
+      storage.dock_gui_pinv[event.player_index] = el.state or nil
+      local st = storage.dock_gui_live and storage.dock_gui_live[event.player_index]
+      if el.state and st then
+        open_pinv(player, st)
+      else
+        close_pinv(player)
+        if st then st.pslots = nil end
+      end
+      return
+    end
     local field, which, idx = parse_dk(el.name)
     if not field then return end
     local d = open_dock(event.player_index)

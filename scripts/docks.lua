@@ -13,7 +13,9 @@
 --                          watch, watch_i,            -- за кем следит рука (un, cursor.i)
 --                          held, heading,             -- пойманная каретка + её курс
 --                          last_released,             -- не переловить только что опущенную
---                          grab_conds, drop_conds }   -- условия захвата/отпускания (ДНФ)
+--                          grab_conds, drop_conds,    -- условия захвата/отпускания (ДНФ)
+--                          read_contents, emitted }   -- галочка «читать содержимое» + что
+--                                                     --   сейчас выведено в комбинатор
 --
 -- УСЛОВИЯ ЗАХВАТА (шаг 4): «валидность» каретки = композиция сравнений по И/ИЛИ
 -- (семантика ДНФ: И крепче ИЛИ — «(a И b) ИЛИ c ИЛИ (d И e)»). grab_conds — массив
@@ -143,6 +145,12 @@ function Docks.dock_add(entity)
   }
   docks[key] = d
   d.visual = make_arm(d)
+  -- вывод «читать содержимое» начинается с чистого листа: чертёж/сейв могли
+  -- принести секцию с зависшей эмиссией (сущность несёт её сама) — снять
+  -- (d.emitted = nil уже по построению; update_output переэмитит по факту)
+  local cb = entity.get_or_create_control_behavior()
+  local sec = cb.get_section(1)
+  if sec then sec.filters = {} end
 end
 
 -- Снос дока: пойманная каретка остаётся стоять на месте дока (запись с convoy=nil —
@@ -196,6 +204,16 @@ function Docks.new_quality_cond()
            rsrc = { r = true, g = true, cart = true } }
 end
 
+-- Слот-условие (cond.ctype = "slots"): число ПУСТЫХ слотов груза каретки-источника
+-- против правого операнда — константы или сигнала (стандартный пикер сигнал+число).
+-- Устройство как у квалити-строки, только левый операнд = src.empty и правый —
+-- обычное число (constant вместо qname).
+function Docks.new_slots_cond()
+  return { link = "and", ctype = "slots", comparator = "=",
+           use_signal = false, second_signal = nil, constant = 0,
+           rsrc = { r = true, g = true, cart = true } }
+end
+
 -- Строка с предзаполненным вирт-сигналом и оператором (дефолты дока в dock_add).
 function Docks.preset_cond(name, comparator)
   local cond = Docks.new_cond()
@@ -208,11 +226,15 @@ function Docks.conds(d, which)
   return d[LIST_FIELD[which] or "grab_conds"]
 end
 
--- ctype: nil/"logic" → строка-сравнение сигналов, "quality" → квалити-строка.
+-- ctype: nil/"logic" → строка-сравнение сигналов, "quality" → квалити-строка,
+-- "slots" → число пустых слотов.
 function Docks.cond_add(d, which, ctype)
   local f = LIST_FIELD[which] or "grab_conds"
   d[f] = d[f] or {}
-  local cond = (ctype == "quality") and Docks.new_quality_cond() or Docks.new_cond()
+  local cond
+  if ctype == "quality" then cond = Docks.new_quality_cond()
+  elseif ctype == "slots" then cond = Docks.new_slots_cond()
+  else cond = Docks.new_cond() end
   table.insert(d[f], cond)
   return cond
 end
@@ -251,11 +273,26 @@ function Docks.eval_ctx()
   return { wires = {}, carts = {}, chests = {} }
 end
 
+-- Вычесть из таблицы провода собственный вывод дока («читать содержимое»):
+-- эмиссия constant-combinator видна на КАЖДОМ подключённом проводе (грабли
+-- рельсового read-next — см. circuit.lua), иначе условия читали бы сами себя.
+-- Обнулившийся сигнал убираем совсем (сеть без нашей эмиссии его бы не имела —
+-- важно для вайлдкардов every/any, которые обходят все ключи).
+local function subtract_emitted(tab, emitted)
+  if not (tab and emitted) then return tab end
+  for k, v in pairs(emitted) do
+    local left = (tab[k] or 0) - v
+    if left == 0 then tab[k] = nil else tab[k] = left end
+  end
+  return tab
+end
+
 local function dock_wires(ctx, d)
   local w = ctx.wires[d]
   if not w then
     local red, green = Circuit.read_split(d.entity)
-    w = { red = red, green = green }
+    w = { red = subtract_emitted(red, d.emitted),
+          green = subtract_emitted(green, d.emitted) }
     ctx.wires[d] = w
   end
   return w
@@ -275,7 +312,9 @@ function Docks.cart_src(ctx, un, cart)
     end
     local e = cart.entity
     local q = (e and e.valid and e.quality) and G.quality_ord(e.quality.name) or 1
-    s = { map = m, q = q }
+    local inv = cart.inv
+    local empty = (inv and inv.valid) and inv.count_empty_stacks() or 0
+    s = { map = m, q = q, empty = empty }
     ctx.carts[un] = s
   end
   return s
@@ -419,10 +458,76 @@ function Docks.held_src(ctx, d)
     end
     local e = cart and cart.entity
     local q = (e and e.valid and e.quality) and G.quality_ord(e.quality.name) or 1
-    s = { map = m, q = q }
+    -- пустые слоты: всего = слоты каретки; занятые — в сундуке (loaded) ИЛИ в
+    -- cart.inv (анимации; непуст ровно один). Слоты сундука за баром пусты по
+    -- построению, так что count_empty_stacks честен для обоих.
+    local empty = 0
+    if cart and cart.inv and cart.inv.valid then
+      local total = #cart.inv
+      local used = total - cart.inv.count_empty_stacks()
+      if inv then used = used + (#inv - inv.count_empty_stacks()) end
+      empty = math.max(0, total - used)
+    end
+    s = { map = m, q = q, empty = empty }
     ctx.chests[d] = s
   end
   return s
+end
+
+-- ── вывод содержимого в провода (галочка «читать содержимое» в GUI) ─
+-- Пока галочка включена И контейнер разблокирован (state = loaded), содержимое
+-- сундука-компаньона выводится секцией комбинатора дока — нативная эмиссия в
+-- подключённые провода. Иначе секция пуста. d.emitted = что выведено сейчас
+-- ({key->count}): и кэш «не переписывать секцию без изменений», и вычитаемое
+-- собственного вывода при чтении условий (dock_wires/subtract_emitted).
+function Docks.update_output(d)
+  local want
+  if d.read_contents and d.state == "loaded" then
+    local inv = Docks.chest_inv(d)
+    if inv then
+      want = {}
+      for _, it in ipairs(inv.get_contents()) do
+        local key = Circuit.signal_key({ type = "item", name = it.name,
+                                         quality = it.quality or "normal" })
+        want[key] = (want[key] or 0) + it.count
+      end
+    end
+  end
+  local have = d.emitted
+  if want == nil and have == nil then return end
+  if want and have then
+    local same = true
+    for k, v in pairs(want) do
+      if have[k] ~= v then same = false; break end
+    end
+    if same then
+      for k in pairs(have) do
+        if want[k] == nil then same = false; break end
+      end
+    end
+    if same then return end
+  end
+  local e = d.entity
+  if not (e and e.valid) then return end
+  local cb = e.get_or_create_control_behavior()
+  local sec = cb.get_section(1) or cb.add_section()
+  if not want then
+    sec.filters = {}
+    d.emitted = nil
+    return
+  end
+  -- порядок фильтров — по сортированным ключам (детерминизм в мультиплеере)
+  local keys = {}
+  for k in pairs(want) do keys[#keys + 1] = k end
+  table.sort(keys)
+  local filters = {}
+  for i, k in ipairs(keys) do
+    local t, name, q = k:match("^([^/]+)/(.+)/([^/]+)$")
+    filters[i] = { value = { type = t, name = name, quality = q, comparator = "=" },
+                   min = want[k] }
+  end
+  sec.filters = filters
+  d.emitted = want
 end
 
 -- Числовое сравнение по тем же шести операторам, что и строки-сигналы (COMPARATORS
@@ -436,27 +541,37 @@ local function num_true(a, cmp, b)
   else return a == b end
 end
 
--- Одна строка условия. Квалити-строка (ctype="quality"): качество каретки (число
--- 1..5) против правого операнда — конкретного качества (qname) или сигнала
--- (second_signal по источникам rsrc, как у logic-строки); нет каретки или сигнал
--- не выбран → false (как недонастроенная строка).
+-- Правый операнд-СИГНАЛ числовых строк (quality/slots): значение second_signal
+-- по источникам rsrc (общий Circuit.operand_table). nil = сигнал не выбран.
+local function signal_rhs(ctx, d, cond, src)
+  if not (cond.second_signal and cond.second_signal.name) then return nil end
+  local w = dock_wires(ctx, d)
+  local rtab = Circuit.operand_table(cond.rsrc, w.red, w.green, src.map)
+  return rtab[Circuit.signal_key(cond.second_signal)] or 0
+end
+
+-- Одна строка условия. Числовые строки (левый операнд зафиксирован источником):
+--   quality — качество каретки (1..5) против конкретного качества qname или сигнала;
+--   slots   — число ПУСТЫХ слотов груза (src.empty) против константы или сигнала.
+-- Нет каретки / сигнал не выбран → false (как недонастроенная строка).
 -- Logic-строка: предикат — общий с рельсами (R.cond_true, включая вайлдкарды
 -- any/every/each по таблице ЛЕВОГО операнда), правый операнд читает свою таблицу
 -- источников. Сумма источников — общий Circuit.operand_table (у дока src всегда
 -- есть — nil-легаси-ветка «все три» относится к рельсам).
 function Docks.row_true(ctx, d, cond, src)
-  if cond.ctype == "quality" then
+  if cond.ctype == "quality" or cond.ctype == "slots" then
     if not src then return false end
+    local lhs = (cond.ctype == "slots") and src.empty or src.q
     local rhs
     if cond.use_signal then
-      if not (cond.second_signal and cond.second_signal.name) then return false end
-      local w = dock_wires(ctx, d)
-      local rtab = Circuit.operand_table(cond.rsrc, w.red, w.green, src.map)
-      rhs = rtab[Circuit.signal_key(cond.second_signal)] or 0
+      rhs = signal_rhs(ctx, d, cond, src)
+      if not rhs then return false end
+    elseif cond.ctype == "slots" then
+      rhs = cond.constant or 0
     else
       rhs = G.quality_ord(cond.qname)
     end
-    return num_true(src.q, cond.comparator, rhs)
+    return num_true(lhs, cond.comparator, rhs)
   end
   local w = dock_wires(ctx, d)
   local cartmap = src and src.map
@@ -718,11 +833,12 @@ function Docks.on_tick()
     end
   end
 
-  -- пасс 3: стейт-машины + визуал
+  -- пасс 3: стейт-машины + вывод содержимого + визуал
   for _, k in ipairs(keys) do
     local d = docks[k]
     if d then
       step(d, claim[d], ctx)
+      Docks.update_output(d)
       apply_visual(d)
     end
   end
@@ -732,7 +848,8 @@ end
 -- Геометрию (direction) чертёж несёт сам; в теги — только условия захвата.
 -- Стороны в условиях не участвуют → D4-ремап при повороте чертежа не нужен.
 function Docks.blueprint_tags(d)
-  return { scl_grab_conds = d.grab_conds, scl_drop_conds = d.drop_conds }
+  return { scl_grab_conds = d.grab_conds, scl_drop_conds = d.drop_conds,
+           scl_read_contents = d.read_contents or nil }
 end
 
 -- Заселить теги свежепостроенного дока (event.tags из on_built). tags nil → no-op.
@@ -745,6 +862,7 @@ function Docks.apply_blueprint_tags(entity, tags)
   -- Старые чертежи (до тегов) тоже дают nil = легаси-поведение, как и строились.
   d.grab_conds = tags.scl_grab_conds
   d.drop_conds = tags.scl_drop_conds
+  d.read_contents = tags.scl_read_contents and true or false
 end
 
 -- Перенос настроек док→док (нативный on_entity_settings_pasted — один прототип,
@@ -754,6 +872,7 @@ function Docks.copy_settings(sd, dd)
   if not (sd and dd) or sd == dd then return end
   dd.grab_conds = util.table.deepcopy(sd.grab_conds)
   dd.drop_conds = util.table.deepcopy(sd.drop_conds)
+  dd.read_contents = sd.read_contents
 end
 
 -- ── пересбор из мира (rebuild_world; после пересбора слоя кареток) ──
@@ -767,7 +886,8 @@ function Docks.rebuild()
   for key, d in pairs(storage.docks or {}) do
     saved[key] = { held = d.held, heading = d.heading, state = d.state,
                    arm = d.arm, last_released = d.last_released,
-                   grab_conds = d.grab_conds, drop_conds = d.drop_conds }
+                   grab_conds = d.grab_conds, drop_conds = d.drop_conds,
+                   read_contents = d.read_contents }
   end
   storage.docks = {}
   for _, surface in pairs(game.surfaces) do
@@ -786,6 +906,7 @@ function Docks.rebuild()
         d.last_released = s.last_released
         d.grab_conds = s.grab_conds
         d.drop_conds = s.drop_conds
+        d.read_contents = s.read_contents
         local cart = s.held and storage.carts[s.held]
         if cart and cart.entity and cart.entity.valid and not cart.convoy then
           d.held, d.heading = s.held, s.heading
