@@ -7,7 +7,7 @@
   "description": "Tile-sized rails and externally-routed carts (OHT/AMHS-style), simulated entirely in Lua. Milestone 7: cart cargo (quality = slots) and dock skeleton (directional 1x1 grabs carts off straight rail, arm follows the approaching cart), on top of directional routing conditions, read-next, intersection arbitration and snake-deque convoys.",
   "dependencies": [
     "base >= 2.0.0",
-    "gglib >= 1.0.0",
+    "gglib >= 1.2.0",
     "? flib >= 0.14.0"
   ]
 }

@@ -125,9 +125,10 @@ local function on_removed(event)
         if stack.valid_for_read then event.buffer.insert(stack) end
       end
     end
-    -- каретка на доке: груз лежит в сундуке-компаньоне — тоже добытчику
-    -- (buffer nil при смерти → гибнет); сундук сносится тут же, синхронно —
-    -- ленивый клинап дока увидел бы запись каретки уже удалённой
+    -- каретка на доке: в loaded груз лежит в сундуке-компаньоне — тоже добытчику
+    -- (во время анимаций сундук пуст — груз уже отдал cart.inv выше; buffer nil
+    -- при смерти → гибнет); сундук сносится тут же, синхронно — ленивый клинап
+    -- дока увидел бы запись каретки уже удалённой
     if cart and cart.docked then
       Docks.drain_held_cargo(cart.docked, event.buffer)
     end
@@ -455,8 +456,10 @@ script.on_event("gofarovich-scl-open-cart", function(event)
   if not player then return end
   local sel = player.selected
   if not (sel and sel.valid and sel.name == CART) then return end
-  -- каретка на доке: её груз физически в сундуке-компаньоне (cart.inv пуст) —
-  -- E показывает сундук, игрок видит то же, что видят манипуляторы
+  -- каретка на доке в loaded: груз физически в сундуке-компаньоне (cart.inv
+  -- пуст) — E показывает сундук, игрок видит то же, что видят манипуляторы.
+  -- Во время анимаций held_inventory возвращает nil → фолбэк на cart.inv
+  -- (груз едет в каретке, сундук пуст и заперт)
   local cart = storage.carts[sel.unit_number]
   local inv = cart and cart.docked and Docks.held_inventory(cart.docked)
     or C.cart_inventory(sel.unit_number)

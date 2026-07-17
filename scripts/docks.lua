@@ -24,7 +24,9 @@
 --   r/g  — красный/зелёный провод дока (не подключён → вклад 0, галочка гаснет);
 --   cart — груз ПОДЪЕЗЖАЮЩЕЙ каретки (C.cart_payload той, за которой следит рука).
 -- Значение операнда = сумма по выбранным источникам; ни одной галочки → 0.
--- Недонастроенная строка (без сигнала) = false, как у рельсов. НЕТ строк вовсе →
+-- Недонастроенная строка (без сигнала) = false, как у рельсов. Кроме logic-строк
+-- есть квалити-строки (cond.ctype = "quality", new_quality_cond): качество
+-- каретки-источника (число 1..5) против конкретного качества qname или сигнала. НЕТ строк вовсе →
 -- безусловный захват (у дока нет фолбэка-маршрута: «пустой» док обязан работать).
 -- Валидность пересчитывается каждый тик: стала false на подходе → рука откатывается.
 --
@@ -132,6 +134,12 @@ function Docks.dock_add(entity)
     x = tx, y = ty, entity = entity,
     dir = DIR_SIDE[entity.direction] or "N",
     state = "idle", arm = 0,
+    -- дефолтные условия свежего дока: брать каретку, когда хоть что-то есть
+    -- (anything > 0 — гружёная каретка), опускать, когда всё по нулям
+    -- (everything = 0 — сундук опустошили). Игрок правит/удаляет как обычные строки;
+    -- клон/вставка/чертёж/rebuild переносят списки источника поверх (включая nil).
+    grab_conds = { Docks.preset_cond("signal-anything", ">") },
+    drop_conds = { Docks.preset_cond("signal-everything", "=") },
   }
   docks[key] = d
   d.visual = make_arm(d)
@@ -174,14 +182,37 @@ function Docks.new_cond()
            rsrc = { r = true, g = true, cart = true } }
 end
 
+-- Квалити-условие (cond.ctype = "quality"; у logic-строк ctype нет — nil):
+-- сравнивает КАЧЕСТВО каретки-источника с правым операндом. Качества — числа
+-- 1..5 (порядковый номер в цепочке, G.quality_ord): «≥ uncommon» = normal не
+-- проходит, все выше — да. Левый операнд зафиксирован (качество каретки, источник
+-- задан панелью — подъезжающая/пойманная). Правый — либо КОНКРЕТНОЕ качество
+-- qname (use_signal=false; галочки R/G/Cart гаснут), либо СИГНАЛ second_signal
+-- с источниками rsrc, как у logic-строки (значение сигнала = число 1..5).
+-- Дефолт как у поездов: «= normal».
+function Docks.new_quality_cond()
+  return { link = "and", ctype = "quality", comparator = "=", qname = "normal",
+           use_signal = false, second_signal = nil,
+           rsrc = { r = true, g = true, cart = true } }
+end
+
+-- Строка с предзаполненным вирт-сигналом и оператором (дефолты дока в dock_add).
+function Docks.preset_cond(name, comparator)
+  local cond = Docks.new_cond()
+  cond.signal = { type = "virtual", name = name }
+  cond.comparator = comparator
+  return cond
+end
+
 function Docks.conds(d, which)
   return d[LIST_FIELD[which] or "grab_conds"]
 end
 
-function Docks.cond_add(d, which)
+-- ctype: nil/"logic" → строка-сравнение сигналов, "quality" → квалити-строка.
+function Docks.cond_add(d, which, ctype)
   local f = LIST_FIELD[which] or "grab_conds"
   d[f] = d[f] or {}
-  local cond = Docks.new_cond()
+  local cond = (ctype == "quality") and Docks.new_quality_cond() or Docks.new_cond()
   table.insert(d[f], cond)
   return cond
 end
@@ -230,18 +261,24 @@ local function dock_wires(ctx, d)
   return w
 end
 
--- Груз каретки как таблица сигналов {key->count} (key = Circuit.signal_key).
-function Docks.cart_map(ctx, un, cart)
-  local m = ctx.carts[un]
-  if not m then
-    m = {}
+-- Каретка как источник условий: { map, q } — map = груз таблицей сигналов
+-- {key->count} (key = Circuit.signal_key), q = качество каретки числом 1..5
+-- (G.quality_ord; для квалити-строк). nil-источник = каретки нет (map читается
+-- как нули, квалити-строка — false).
+function Docks.cart_src(ctx, un, cart)
+  local s = ctx.carts[un]
+  if not s then
+    local m = {}
     local p = C.cart_payload(cart)
     if p then
       for _, e in ipairs(p) do m[e.key] = (m[e.key] or 0) + e.count end
     end
-    ctx.carts[un] = m
+    local e = cart.entity
+    local q = (e and e.valid and e.quality) and G.quality_ord(e.quality.name) or 1
+    s = { map = m, q = q }
+    ctx.carts[un] = s
   end
-  return m
+  return s
 end
 
 -- ── сундук-компаньон («док = хранилище», docks.md) ──────────────────
@@ -258,8 +295,12 @@ function Docks.chest_inv(d)
   return chest.get_inventory(defines.inventory.chest)
 end
 
--- Создать сундук и перелить в него груз каретки (хват).
-function Docks.chest_create(d, cart)
+-- Создать сундук-компаньон (хват): ПУСТОЙ и запертый. Груз каретки в него НЕ
+-- переливается: bar не блокирует ни дозаполнение существующих стеков за ним,
+-- ни изъятие — настоящий замок это bar=1 на ПУСТОМ сундуке. Поэтому груз лежит
+-- в сундуке только в базе хранения loaded (chest_load/chest_unload на границах),
+-- а во время анимаций (take/lower/drop) едет в script-инвентаре каретки на клешне.
+function Docks.chest_create(d)
   local e = d.entity
   if not (e and e.valid) then return end
   local chest = e.surface.create_entity({
@@ -270,19 +311,12 @@ function Docks.chest_create(d, cart)
   chest.destructible = false  -- живёт/умирает только скриптом
   d.chest = chest
   local inv = chest.get_inventory(defines.inventory.chest)
-  local cinv = cart.inv
-  if not (inv and cinv and cinv.valid) then return end
-  for i = 1, math.min(#cinv, #inv) do
-    inv[i].set_stack(cinv[i])  -- set_stack кладёт мимо bar — порядок с замком не важен
-    cinv[i].clear()
-  end
-  inv.set_bar(1)  -- хват = начало анимации take → инвентарь заперт (см. chest_lock)
+  if inv then inv.set_bar(1) end  -- заперт до конца анимации take (chest_load)
 end
 
--- Замок инвентаря дока: КЛАСТЬ можно только в базовом состоянии хранения
--- (loaded). Во время анимаций (take/lower/drop) bar = 1 блокирует вставку и
--- манипуляторам, и логистике; UI дока гасит слоты. Изъятие манипулятором bar
--- не блокирует (ограничения API) — принято. Разлок: bar = слоты каретки + 1.
+-- Замок инвентаря дока: bar = 1 (плюс сундук в этот момент пуст по построению —
+-- см. chest_create: только так лок полный в обе стороны). Разлок в loaded:
+-- bar = слоты каретки + 1. UI дока гасит слоты за баром.
 function Docks.chest_lock(d, locked)
   local inv = Docks.chest_inv(d)
   if not inv then return end
@@ -295,6 +329,35 @@ function Docks.chest_lock(d, locked)
   end
 end
 
+-- Послотовый перенос 1:1 (размеры равны по построению: слоты сундука/bar = слоты
+-- каретки по качеству). Пустые слоты источника пропускаем — вызов с пустым
+-- источником безопасен (не затирает приёмник), перенос идемпотентен.
+local function transfer_slots(from, to)
+  if not (from and from.valid and to and to.valid) then return end
+  for i = 1, math.min(#from, #to) do
+    local s = from[i]
+    if s.valid_for_read then
+      to[i].set_stack(s)
+      s.clear()
+    end
+  end
+end
+
+-- Вход в базу хранения (take → loaded): груз каретки → сундук, инвентарь открыт.
+function Docks.chest_load(d)
+  local cart = d.held and storage.carts[d.held]
+  transfer_slots(cart and cart.inv, Docks.chest_inv(d))
+  Docks.chest_lock(d, false)
+end
+
+-- Выход из базы хранения (loaded → lower): груз обратно в каретку (повезёт его
+-- на клешне), сундук снова пуст и заперт — манипуляторам взять/положить нечего.
+function Docks.chest_unload(d)
+  local cart = d.held and storage.carts[d.held]
+  transfer_slots(Docks.chest_inv(d), cart and cart.inv)
+  Docks.chest_lock(d, true)
+end
+
 -- Слить груз из сундука и снести его. target_inv: cart.inv (by_slot=true, 1:1)
 -- при опускании/сносе дока; буфер добытчика (by_slot=false, insert) при майнинге
 -- каретки; nil — груз гибнет (смерть/blackout каретки на доке).
@@ -302,7 +365,12 @@ function Docks.chest_drain(d, target_inv, by_slot)
   local inv = Docks.chest_inv(d)
   if inv and target_inv and target_inv.valid then
     if by_slot then
-      for i = 1, math.min(#inv, #target_inv) do target_inv[i].set_stack(inv[i]) end
+      -- только непустые: сундук может быть уже пуст (груз в каретке во время
+      -- анимаций) — слепое копирование затёрло бы слоты приёмника пустотой
+      for i = 1, math.min(#inv, #target_inv) do
+        local s = inv[i]
+        if s.valid_for_read then target_inv[i].set_stack(s) end
+      end
     else
       for i = 1, #inv do
         local s = inv[i]
@@ -321,18 +389,21 @@ function Docks.drain_held_cargo(key, buffer)
 end
 
 -- LuaInventory сундука дока key — окно груза по E, пока каретка на доке.
+-- Только в loaded: во время анимаций груз физически в каретке (сундук пуст и
+-- заперт) — вернём nil, вызывающий (control.lua) откроет cart.inv.
 function Docks.held_inventory(key)
   local d = storage.docks and storage.docks[key]
-  if not d then return nil end
+  if not (d and d.state == "loaded") then return nil end
   return Docks.chest_inv(d)
 end
 
--- Груз ПОЙМАННОЙ каретки как таблица сигналов: пока она на доке, груз физически
--- в сундуке (cart.inv пуст!) — условия отпускания и drop-панель GUI читают его.
-function Docks.held_map(ctx, d)
-  local m = ctx.chests[d]
-  if not m then
-    m = {}
+-- ПОЙМАННАЯ каретка как источник { map, q } — условия отпускания и drop-панель
+-- GUI. Груз в loaded физически лежит в сундуке, во время анимаций — в cart.inv
+-- (ровно один из двух непуст), поэтому суммируем оба источника.
+function Docks.held_src(ctx, d)
+  local s = ctx.chests[d]
+  if not s then
+    local m = {}
     local inv = Docks.chest_inv(d)
     if inv then
       for _, it in ipairs(inv.get_contents()) do
@@ -341,17 +412,54 @@ function Docks.held_map(ctx, d)
         m[key] = (m[key] or 0) + it.count
       end
     end
-    ctx.chests[d] = m
+    local cart = d.held and storage.carts[d.held]
+    local pay = cart and C.cart_payload(cart)
+    if pay then
+      for _, it in ipairs(pay) do m[it.key] = (m[it.key] or 0) + it.count end
+    end
+    local e = cart and cart.entity
+    local q = (e and e.valid and e.quality) and G.quality_ord(e.quality.name) or 1
+    s = { map = m, q = q }
+    ctx.chests[d] = s
   end
-  return m
+  return s
 end
 
--- Одна строка-сравнение: предикат — общий с рельсами (R.cond_true, включая
--- вайлдкарды any/every/each по таблице ЛЕВОГО операнда), правый операнд читает
--- свою таблицу источников. Сумма источников — общий Circuit.operand_table
--- (у дока src всегда есть — nil-легаси-ветка «все три» относится к рельсам).
-function Docks.row_true(ctx, d, cond, cartmap)
+-- Числовое сравнение по тем же шести операторам, что и строки-сигналы (COMPARATORS
+-- в gui_dock.lua) — квалити-строки сравнивают порядковые номера качеств.
+local function num_true(a, cmp, b)
+  if cmp == "<" then return a < b
+  elseif cmp == ">" then return a > b
+  elseif cmp == "≥" then return a >= b
+  elseif cmp == "≤" then return a <= b
+  elseif cmp == "≠" then return a ~= b
+  else return a == b end
+end
+
+-- Одна строка условия. Квалити-строка (ctype="quality"): качество каретки (число
+-- 1..5) против правого операнда — конкретного качества (qname) или сигнала
+-- (second_signal по источникам rsrc, как у logic-строки); нет каретки или сигнал
+-- не выбран → false (как недонастроенная строка).
+-- Logic-строка: предикат — общий с рельсами (R.cond_true, включая вайлдкарды
+-- any/every/each по таблице ЛЕВОГО операнда), правый операнд читает свою таблицу
+-- источников. Сумма источников — общий Circuit.operand_table (у дока src всегда
+-- есть — nil-легаси-ветка «все три» относится к рельсам).
+function Docks.row_true(ctx, d, cond, src)
+  if cond.ctype == "quality" then
+    if not src then return false end
+    local rhs
+    if cond.use_signal then
+      if not (cond.second_signal and cond.second_signal.name) then return false end
+      local w = dock_wires(ctx, d)
+      local rtab = Circuit.operand_table(cond.rsrc, w.red, w.green, src.map)
+      rhs = rtab[Circuit.signal_key(cond.second_signal)] or 0
+    else
+      rhs = G.quality_ord(cond.qname)
+    end
+    return num_true(src.q, cond.comparator, rhs)
+  end
   local w = dock_wires(ctx, d)
+  local cartmap = src and src.map
   local ltab = Circuit.operand_table(cond.lsrc, w.red, w.green, cartmap)
   local rtab = cond.use_signal
     and Circuit.operand_table(cond.rsrc, w.red, w.green, cartmap) or nil
@@ -360,15 +468,15 @@ end
 
 -- ДНФ слева направо: "or" закрывает И-группу (истинная группа → весь предикат
 -- истинен), внутри группы все строки должны быть истинны. Общее для захвата и
--- отпускания — различаются только списком и кареткой-источником cartmap.
-function Docks.conds_true(ctx, d, conds, cartmap)
+-- отпускания — различаются только списком и кареткой-источником src.
+function Docks.conds_true(ctx, d, conds, src)
   local ok = true
   for i, cond in ipairs(conds) do
     if i > 1 and cond.link == "or" then
       if ok then return true end
       ok = true
     end
-    if ok then ok = Docks.row_true(ctx, d, cond, cartmap) end
+    if ok then ok = Docks.row_true(ctx, d, cond, src) end
   end
   return ok
 end
@@ -378,7 +486,7 @@ end
 function Docks.grab_valid(ctx, d, un, cart)
   local conds = d.grab_conds
   if not (conds and #conds > 0) then return true end
-  return Docks.conds_true(ctx, d, conds, Docks.cart_map(ctx, un, cart))
+  return Docks.conds_true(ctx, d, conds, Docks.cart_src(ctx, un, cart))
 end
 
 -- ── захват / отпускание ────────────────────────────────────────────
@@ -405,7 +513,7 @@ local function grab(d, un)
   local heading = cart.cursor.exit  -- мировой курс: куда ехала (помним до опускания)
   if not C.cart_detach(un) then return end
   cart.docked = key_of(d)
-  Docks.chest_create(d, cart)  -- груз каретки → сундук-компаньон (док = хранилище)
+  Docks.chest_create(d)  -- пустой запертый сундук; груз едет в каретке до loaded
   d.held, d.heading = un, heading
   d.watch, d.watch_i = nil, nil
   d.state = "take"  -- arm остаётся REACH — реверс руки с кареткой
@@ -422,7 +530,9 @@ local function try_drop(d, held_cart)
   local node = storage.rails[d.tkey]
   if not (node and node.conns[G.CONN[entry][exit]]) then return end
   if C.cart_attach(d.held, d.tkey, entry, exit, true) then
-    Docks.chest_drain(d, held_cart.inv, true)  -- груз из сундука обратно в каретку
+    -- груз уже в каретке (chest_unload на старте lower); слив — страховка на
+    -- случай остатков в сундуке (старый сейв), дальше он просто сносится
+    Docks.chest_drain(d, held_cart.inv, true)
     held_cart.docked = nil
     d.last_released = d.held
     d.held, d.heading = nil, nil
@@ -437,7 +547,7 @@ function Docks.release(key)
   local d = storage.docks and storage.docks[key]
   if not (d and d.state == "loaded" and d.held) then return false end
   d.state = "lower"  -- arm с 0 растёт в step
-  Docks.chest_lock(d, true)  -- анимация пошла — инвентарь заперт
+  Docks.chest_unload(d)  -- анимация пошла: груз обратно в каретку, сундук заперт
   return true
 end
 
@@ -458,16 +568,16 @@ local function step(d, cand, ctx)
 
   if d.state == "loaded" then
     -- условия отпускания (шаг 5): Cart = ПОЙМАННАЯ каретка — её груз сейчас
-    -- физически в сундуке-компаньоне (held_map), cart.inv пуст.
+    -- физически в сундуке-компаньоне (held_src), cart.inv пуст.
     -- Нет строк = держим до /scl-dock-release (дефолт отпускания — «хранить»,
     -- в отличие от захвата: иначе свежий док ловил бы и тут же выплёвывал).
     -- Начатое опускание (lower/drop) не отменяется, если условие стало false —
     -- как поезд, который уже отправился.
     local conds = d.drop_conds
     if conds and #conds > 0 and held_cart
-      and Docks.conds_true(ctx, d, conds, Docks.held_map(ctx, d)) then
+      and Docks.conds_true(ctx, d, conds, Docks.held_src(ctx, d)) then
       d.state, d.arm = "lower", 0
-      Docks.chest_lock(d, true)  -- анимация пошла — инвентарь заперт
+      Docks.chest_unload(d)  -- анимация пошла: груз обратно в каретку, сундук заперт
     end
     return
   end
@@ -476,7 +586,7 @@ local function step(d, cand, ctx)
     carry_cart(d)
     if d.arm <= 0 then
       d.state, d.arm = "loaded", 0
-      Docks.chest_lock(d, false)  -- база хранения: инвентарь дока открыт
+      Docks.chest_load(d)  -- база хранения: груз каретки → сундук, инвентарь открыт
     end
     return
   end
@@ -630,8 +740,11 @@ function Docks.apply_blueprint_tags(entity, tags)
   if not tags then return end
   local d = storage.docks and storage.docks[G.key_of_tile(G.tile_of(entity.position))]
   if not (d and d.entity == entity) then return end
-  if tags.scl_grab_conds ~= nil then d.grab_conds = tags.scl_grab_conds end
-  if tags.scl_drop_conds ~= nil then d.drop_conds = tags.scl_drop_conds end
+  -- Безусловно (не `if ~= nil`): отсутствующий тег = у источника условий не было
+  -- (все строки удалены) — иначе построенный док оставил бы себе дефолты dock_add.
+  -- Старые чертежи (до тегов) тоже дают nil = легаси-поведение, как и строились.
+  d.grab_conds = tags.scl_grab_conds
+  d.drop_conds = tags.scl_drop_conds
 end
 
 -- Перенос настроек док→док (нативный on_entity_settings_pasted — один прототип,
@@ -687,7 +800,10 @@ function Docks.rebuild()
             d.chest = ch
             ch.destructible = false
             chests[key] = nil
-            Docks.chest_lock(d, d.state ~= "loaded")  -- замок по восстановленному состоянию
+            -- груз/замок по восстановленному состоянию; для drop это ещё и
+            -- миграция старых сейвов (груз лежал в сундуке во время анимаций)
+            if d.state == "loaded" then Docks.chest_load(d)
+            else Docks.chest_unload(d) end
           end
         end
       end

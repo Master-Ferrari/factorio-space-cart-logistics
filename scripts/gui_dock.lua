@@ -8,6 +8,12 @@
 -- signal_picker); результат пикера приходит через ЕДИНЫЙ SP.set_on_pick в gui.lua,
 -- который диспатчит сюда по target.dock (GUIDock.on_pick; target.kind = панель).
 --
+-- Типы строк («+ Add condition» разворачивает меню выбора, как у поездов):
+-- logic (сравнение сигналов, по умолчанию) и cart quality (качество каретки,
+-- числа 1..5, против конкретного качества или сигнала — пикер gglib в режиме
+-- exact_quality: обычный пикер сигналов, но вместо панели константы ряд «Or
+-- select exact quality»; галочки R/G/C правого операнда активны при сигнале).
+--
 -- Раскладка связок: строки-карточки с отступом слева; между соседними — кнопка
 -- И/ИЛИ (клик переключает): ИЛИ «главнее» — у левого края, И — с отступом (на
 -- линии карточек). Скобки И-групп по docks.md — полировка позже (раскладка чисто
@@ -35,7 +41,9 @@ GUIDock.FRAME = "gofarovich-scl-dock-gui"
 GUIDock.CLOSE = "gofarovich-scl-dock-close"
 GUIDock.SLOT  = "gofarovich-scl-dock-slot-"  -- + i: слот инвентаря дока (сундук)
 GUIDock.DK    = "gofarovich-scl-dk-"  -- + <field>-<kind>-<idx>; kind: g=захват, d=отпускание
-                                      -- field: new/link/del/cmp/up/dn/lr/lg/lc/rr/rg/rc
+                                      -- field: new/addlogic/addqual (меню типов условия) /
+                                      -- link/del/cmp/up/dn/lr/lg/lc/rr/rg/rc; qual — слот
+                                      -- качества квалити-строки (пикер gglib)
 
 local PANEL_W = 350  -- ширина одной панели; окно = две рядом
 local INDENT = 20    -- отступ карточек и И-кнопок; ИЛИ — у левого края
@@ -67,24 +75,25 @@ local function nearest_approaching(d)
   return best_un, best_cart
 end
 
--- grab: наблюдаемая рукой → ближняя подъезжающая. nil → Cart читает 0.
-local function grab_cartmap(ctx, d)
+-- grab: наблюдаемая рукой → ближняя подъезжающая. nil → Cart читает 0,
+-- квалити-строки false. Источник = { map, q } (Docks.cart_src).
+local function grab_src(ctx, d)
   local un, cart = d.watch, d.watch and storage.carts[d.watch]
   if not cart then un, cart = nearest_approaching(d) end
-  if cart then return Docks.cart_map(ctx, un, cart) end
+  if cart then return Docks.cart_src(ctx, un, cart) end
   return nil
 end
 
--- drop: пойманная (loaded/take/lower/drop) — её груз физически в сундуке-
--- компаньоне (cart.inv на доке пуст), читаем его. nil → Cart читает 0.
-local function drop_cartmap(ctx, d)
-  if d.held then return Docks.held_map(ctx, d) end
+-- drop: пойманная (loaded/take/lower/drop) — held_src суммирует сундук-компаньон
+-- (loaded) и cart.inv (анимации: груз едет в каретке). nil → Cart читает 0.
+local function drop_src(ctx, d)
+  if d.held then return Docks.held_src(ctx, d) end
   return nil
 end
 
-local function kind_cartmap(ctx, d, kind)
-  if kind == "d" then return drop_cartmap(ctx, d) end
-  return grab_cartmap(ctx, d)
+local function kind_src(ctx, d, kind)
+  if kind == "d" then return drop_src(ctx, d) end
+  return grab_src(ctx, d)
 end
 
 -- ── общие куски (локальная копия titlebar из gui.lua — без require-цикла) ─
@@ -193,22 +202,53 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
   local spacer0 = row.add{ type = "empty-widget" }
   spacer0.style.horizontally_stretchable = true
 
-  -- левый операнд: только сигнал (с вайлдкардами any/every/each)
-  add_operand(row, key, kind, idx, "siga",
-    { use_signal = true, signal = cond.signal },
-    { allow_wildcards = true, allow_constant = false },
-    cond.lsrc or {}, wired_r, wired_g, true)
+  if cond.ctype == "quality" then
+    -- квалити-строка: левый «операнд» зафиксирован (качество каретки, источник
+    -- задан панелью) — погашенный слот с иконкой «любое качество», без галочек
+    local anyq = row.add{ type = "sprite-button", style = "slot_button",
+      sprite = "utility/any_quality",
+      tooltip = { "gofarovich-scl-gui." .. (kind == "d" and "cond-quality-held" or "cond-quality-cart") } }
+    anyq.style.size = 44
+    anyq.enabled = false
 
-  local dd = row.add{ type = "drop-down", name = GUIDock.DK .. "cmp" .. sfx,
-    items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
-  dd.style.width = 50
-  dd.style.height = 44
+    local dd = row.add{ type = "drop-down", name = GUIDock.DK .. "cmp" .. sfx,
+      items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
+    dd.style.width = 50
+    dd.style.height = 44
 
-  -- правый операнд: сигнал ИЛИ константа (галочки при константе гаснут)
-  add_operand(row, key, kind, idx, "sigb",
-    { use_signal = cond.use_signal, signal = cond.second_signal, constant = cond.constant },
-    { allow_wildcards = false, allow_constant = true },
-    cond.rsrc or {}, wired_r, wired_g, cond.use_signal == true)
+    -- правый операнд: конкретное качество ИЛИ сигнал (пикер gglib exact_quality);
+    -- галочки R/G/C активны только при сигнале — конкретное качество источники
+    -- не читает (симметрично операнду-константе logic-строки)
+    local wrap = row.add{ type = "flow", direction = "horizontal" }
+    wrap.style.vertical_align = "center"
+    wrap.style.horizontal_spacing = 2
+    add_src_checks(wrap, "r", kind, idx, cond.rsrc or {}, wired_r, wired_g,
+      cond.use_signal == true)
+    SB.build(wrap, {
+      target = { dock = key, kind = kind, idx = idx, field = "qual" },
+      value = { use_signal = cond.use_signal, signal = cond.second_signal,
+                quality = cond.qname },
+      size = 44,
+      exact_quality = true,
+    })
+  else
+    -- левый операнд: только сигнал (с вайлдкардами any/every/each)
+    add_operand(row, key, kind, idx, "siga",
+      { use_signal = true, signal = cond.signal },
+      { allow_wildcards = true, allow_constant = false },
+      cond.lsrc or {}, wired_r, wired_g, true)
+
+    local dd = row.add{ type = "drop-down", name = GUIDock.DK .. "cmp" .. sfx,
+      items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
+    dd.style.width = 50
+    dd.style.height = 44
+
+    -- правый операнд: сигнал ИЛИ константа (галочки при константе гаснут)
+    add_operand(row, key, kind, idx, "sigb",
+      { use_signal = cond.use_signal, signal = cond.second_signal, constant = cond.constant },
+      { allow_wildcards = false, allow_constant = true },
+      cond.rsrc or {}, wired_r, wired_g, cond.use_signal == true)
+  end
 
   local spacer1 = row.add{ type = "empty-widget" }
   spacer1.style.horizontally_stretchable = true
@@ -228,8 +268,9 @@ end
 
 -- Колонка одного редактора (kind "g"/"d") внутри общей панели окна: заголовок
 -- (подсказка — в его тултипе, наведение на [i]), скролл со строками и
--- «+ Add condition». Строки дописываются в rows (для live-подсветки).
-local function add_panel(parent, d, key, kind, ctx, wired_r, wired_g, rows)
+-- «+ Add condition» (тоггл всплывающего меню типов условия — open_addmenu;
+-- ссылка на кнопку — в btns[kind] для подсветки toggled без пересборки окна).
+local function add_panel(parent, d, key, kind, ctx, wired_r, wired_g, rows, btns)
   local content = parent.add{ type = "flow", direction = "vertical" }
   content.style.width = PANEL_W
   local base = "gofarovich-scl-gui." .. (kind == "d" and "drop-cond" or "grab-cond")
@@ -248,11 +289,11 @@ local function add_panel(parent, d, key, kind, ctx, wired_r, wired_g, rows)
   inner.style.vertical_spacing = 2
   inner.style.horizontally_stretchable = true
 
-  local cartmap = kind_cartmap(ctx, d, kind)
+  local src = kind_src(ctx, d, kind)
   local list = Docks.conds(d, KIND_WHICH[kind]) or {}
   for i, cond in ipairs(list) do
     if i > 1 then add_link_button(inner, kind, i, cond.link) end
-    local lit = Docks.row_true(ctx, d, cond, cartmap)
+    local lit = Docks.row_true(ctx, d, cond, src)
     local box = add_cond_row(inner, key, kind, i, cond, #list, wired_r, wired_g, lit)
     rows[#rows + 1] = { box = box, kind = kind, idx = i,
       lit = lit, lit_tick = lit and game.tick or nil }
@@ -262,6 +303,53 @@ local function add_panel(parent, d, key, kind, ctx, wired_r, wired_g, rows)
     caption = { "gofarovich-scl-gui.new-cond" } }
   add.style.horizontally_stretchable = true
   add.style.height = 32
+  btns[kind] = add
+end
+
+-- ── всплывающее меню типов условия («+ Add condition», как у поездов) ─
+-- Отдельное окошко в gui.screen (инлайн-вариант резался скролл-панелью):
+-- ставится ПОД точкой клика (клик всегда по кнопке ⇒ под кнопкой); если внизу
+-- экрана не хватает места — над ней. Живёт до выбора/повторного клика/любой
+-- пересборки окна дока (позиции кнопок сдвигаются). storage.dock_gui_addmenu[pi]
+-- = which ("grab"/"drop") — для тоггла и подсветки кнопки.
+local ADDMENU = "gofarovich-scl-dock-addmenu"
+local MENU_W, MENU_H = 200, 78  -- оценка габаритов в GUI-юнитах (для флипа/клампа)
+
+local function close_addmenu(player)
+  local f = player.gui.screen[ADDMENU]
+  if f then f.destroy() end
+  if storage.dock_gui_addmenu then storage.dock_gui_addmenu[player.index] = nil end
+end
+
+local function open_addmenu(player, which, loc)
+  close_addmenu(player)
+  storage.dock_gui_addmenu = storage.dock_gui_addmenu or {}
+  storage.dock_gui_addmenu[player.index] = which
+  local kind = (which == "drop") and "d" or "g"
+
+  local frame = player.gui.screen.add{ type = "frame", name = ADDMENU, direction = "vertical" }
+  frame.style.padding = 4
+  local function opt(field, capkey)
+    local b = frame.add{ type = "button", name = GUIDock.DK .. field .. "-" .. kind .. "-0",
+      caption = { "gofarovich-scl-gui." .. capkey } }
+    b.style.horizontally_stretchable = true
+    b.style.minimal_width = MENU_W - 8
+    b.style.height = 28
+  end
+  opt("addlogic", "cond-type-logic")
+  opt("addqual", "cond-type-quality")
+
+  -- позиция: location в ДИСПЛЕЙНЫХ пикселях → габариты умножаем на display_scale
+  local scale = player.display_scale
+  local res = player.display_resolution
+  local w, h = math.floor(MENU_W * scale), math.floor(MENU_H * scale)
+  local x = loc.x - math.floor(w / 2)          -- центрируем по точке клика
+  local y = loc.y + math.floor(10 * scale)     -- чуть ниже клика = под кнопкой
+  if y + h > res.height then y = loc.y - math.floor(10 * scale) - h end  -- флип вверх
+  x = math.max(0, math.min(x, res.width - w))
+  y = math.max(0, y)
+  frame.location = { x, y }
+  frame.bring_to_front()
 end
 
 -- ── инвентарь дока (сундук-компаньон) ───────────────────────────────
@@ -270,6 +358,18 @@ end
 -- погашены (вставку манипуляторами в это время блокирует bar — docks.lua).
 -- Клик = обмен со стеком в руке (та же вещь — домердж). Живое обновление
 -- содержимого/доступности — GUIDock.on_tick. Без каретки — секция-пустышка.
+-- Инвентарь с грузом пойманной каретки для ОТОБРАЖЕНИЯ: в loaded — сундук,
+-- в анимациях груз физически едет в cart.inv (сундук пуст и заперт — docks.lua).
+-- Клики по слотам в анимациях выключены (enabled=false), так что правка всегда
+-- идёт в сундук.
+local function cargo_inv(d)
+  if d.state ~= "loaded" then
+    local cart = d.held and storage.carts[d.held]
+    if cart and cart.inv and cart.inv.valid then return cart.inv end
+  end
+  return Docks.chest_inv(d)
+end
+
 local function slot_face(btn, stack)
   local sprite, number = nil, nil
   if stack and stack.valid_for_read then
@@ -296,7 +396,7 @@ local function add_inventory(body, d, st)
     direction = "horizontal" }
   deep.style.minimal_width = SLOT_PX * INV_SLOTS_MAX
   deep.style.minimal_height = SLOT_PX
-  local inv = Docks.chest_inv(d)
+  local inv = cargo_inv(d)
   if not (d.held and inv) then return end  -- каретки нет — пустая панель
   local cart = storage.carts[d.held]
   local slots = (cart and cart.inv and cart.inv.valid) and #cart.inv or #inv
@@ -316,11 +416,13 @@ end
 function GUIDock.close(player)
   local frame = player.gui.screen[GUIDock.FRAME]
   if frame then frame.destroy() end
+  close_addmenu(player)
   if storage.dock_gui_open then storage.dock_gui_open[player.index] = nil end
   if storage.dock_gui_live then storage.dock_gui_live[player.index] = nil end
 end
 
 function GUIDock.open(player, d)
+  close_addmenu(player)  -- пересборка сдвигает кнопки — всплывающее меню закрыть
   local old = player.gui.screen[GUIDock.FRAME]
   local loc = old and old.location
   if old then old.destroy() end
@@ -364,15 +466,17 @@ function GUIDock.open(player, d)
   -- соседних окнах»), между ними вертикальный разделитель
   local ctx = Docks.eval_ctx()
   local rows = {}
+  local btns = {}
   local pair = body.add{ type = "flow", direction = "horizontal" }
   pair.style.horizontal_spacing = 8
-  add_panel(pair, d, key, "g", ctx, wired_r, wired_g, rows)
+  add_panel(pair, d, key, "g", ctx, wired_r, wired_g, rows, btns)
   local sep = pair.add{ type = "line", direction = "vertical" }
   sep.style.vertically_stretchable = true
-  add_panel(pair, d, key, "d", ctx, wired_r, wired_g, rows)
+  add_panel(pair, d, key, "d", ctx, wired_r, wired_g, rows, btns)
 
   if loc then frame.location = loc else frame.auto_center = true end
   st.rows = rows
+  st.addbtns = btns
   storage.dock_gui_open[player.index] = key
   storage.dock_gui_live[player.index] = st
   player.opened = frame
@@ -421,7 +525,7 @@ function GUIDock.on_tick()
       -- живые лица и доступность слотов инвентаря (манипуляторы кладут/берут
       -- без событий GUI; лок/разлок — по состоянию стейт-машины)
       if st.slots then
-        local inv = Docks.chest_inv(d)
+        local inv = cargo_inv(d)
         local unlocked = d.state == "loaded"
         for i, btn in ipairs(st.slots) do
           if btn.valid then
@@ -434,13 +538,13 @@ function GUIDock.on_tick()
         end
       end
       local ctx = Docks.eval_ctx()
-      local maps = { g = grab_cartmap(ctx, d), d = drop_cartmap(ctx, d) }
+      local srcs = { g = grab_src(ctx, d), d = drop_src(ctx, d) }
       for _, r in ipairs(st.rows) do
         if r.box and r.box.valid then
           local kind = r.kind or "g"
           local list = Docks.conds(d, KIND_WHICH[kind])
           local cond = list and list[r.idx]
-          if cond and Docks.row_true(ctx, d, cond, maps[kind]) then
+          if cond and Docks.row_true(ctx, d, cond, srcs[kind]) then
             r.lit_tick = tick
           end
           local want = r.lit_tick ~= nil and (tick - r.lit_tick) < LIT_HOLD
@@ -462,7 +566,20 @@ function GUIDock.on_pick(player, target, result, changed)
     local list = Docks.conds(d, KIND_WHICH[target.kind or "g"])
     local cond = list and list[target.idx]
     if cond then
-      if target.field == "siga" then
+      if target.field == "qual" then
+        -- правый операнд квалити-строки: конкретное качество или сигнал;
+        -- очистка (корзина) → конкретное normal
+        if result and result.quality then
+          cond.use_signal = false
+          cond.qname = result.quality
+        elseif result and result.signal then
+          cond.use_signal = true
+          cond.second_signal = result.signal
+        else
+          cond.use_signal = false
+          cond.qname = "normal"
+        end
+      elseif target.field == "siga" then
         cond.signal = result and result.signal or nil  -- левый: только сигнал
       else  -- sigb — правый операнд: сигнал ИЛИ константа
         if result and result.constant ~= nil then
@@ -552,8 +669,23 @@ function GUIDock.register_events()
     local field, which, idx = parse_dk(name)
     if not field then return end
     if field == "new" then
-      Docks.cond_add(d, which)
-      GUIDock.open(player, d)
+      -- не добавляет сразу: тоггл всплывающего меню типа условия под кнопкой.
+      -- Окно НЕ пересобираем (иначе меню закрылось бы) — toggled правим руками
+      -- на обеих кнопках через st.addbtns.
+      local cur = storage.dock_gui_addmenu and storage.dock_gui_addmenu[event.player_index]
+      local opening = cur ~= which
+      if opening then
+        open_addmenu(player, which, event.cursor_display_location)
+      else
+        close_addmenu(player)
+      end
+      local st = storage.dock_gui_live and storage.dock_gui_live[event.player_index]
+      for k, b in pairs((st and st.addbtns) or {}) do
+        if b.valid then b.toggled = opening and KIND_WHICH[k] == which end
+      end
+    elseif field == "addlogic" or field == "addqual" then
+      Docks.cond_add(d, which, field == "addqual" and "quality" or nil)
+      GUIDock.open(player, d)  -- open закрывает всплывающее меню сам
     elseif field == "link" then
       Docks.cond_toggle_link(d, which, idx)
       GUIDock.open(player, d)

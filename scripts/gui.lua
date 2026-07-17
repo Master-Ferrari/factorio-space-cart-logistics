@@ -641,7 +641,8 @@ function GUI.register_events()
   Events.on(defines.events.on_gui_text_changed,  function(e) SP.on_text(e) end)
   Events.on(defines.events.on_gui_value_changed, function(e) SP.on_value(e) end)
   Events.on(defines.events.on_gui_closed,        function(e) SP.on_closed(e) end)
-  -- result: { signal=SignalID } | { constant=N } | nil(очистить). changed=false → cancel.
+  -- result: { signal=SignalID } | { constant=N } | { quality=имя } (квалити-пикер
+  -- дока) | nil(очистить). changed=false → cancel.
   -- Колбэк ЕДИНЫЙ на мод: слоты окна дока кодируют target.dock — диспатчим туда.
   SP.set_on_pick(function(player, target, result, changed)
     if target and target.dock then
