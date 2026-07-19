@@ -456,13 +456,12 @@ script.on_event("gofarovich-scl-open-cart", function(event)
   if not player then return end
   local sel = player.selected
   if not (sel and sel.valid and sel.name == CART) then return end
-  -- каретка на доке в loaded: груз физически в сундуке-компаньоне (cart.inv
-  -- пуст) — E показывает сундук, игрок видит то же, что видят манипуляторы.
-  -- Во время анимаций held_inventory возвращает nil → фолбэк на cart.inv
-  -- (груз едет в каретке, сундук пуст и заперт)
-  local cart = storage.carts[sel.unit_number]
-  local inv = cart and cart.docked and Docks.held_inventory(cart.docked)
-    or C.cart_inventory(sel.unit_number)
+  -- Каретка под властью дока: окно открывается как обычно, но ВСЕ слоты в нём
+  -- заперты (bar = 1 на её инвентаре — docks.lua/cart_inv_lock; в loaded груз
+  -- и физически лежит в сундуке-компаньоне). Курсором на тайле дока и так
+  -- выбирается док (selection_priority 70 > 60) — сюда попадают в основном
+  -- анимации, когда каретка нависает над целевым тайлом.
+  local inv = C.cart_inventory(sel.unit_number)
   if not inv then return end
   if player.opened == inv then  -- E по той же каретке при открытом окне = закрыть
     player.opened = nil         -- on_gui_closed сыграет звук закрытия

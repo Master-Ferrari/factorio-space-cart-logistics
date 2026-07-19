@@ -164,8 +164,9 @@ local function add_reorder(parent, up_name, dn_name, can_up, can_dn)
     b.style.minimal_width = 0
     b.style.minimal_height = 0
     b.style.width = 20
-    b.style.height = 22
+    b.style.height = 20
     b.style.padding = 0
+    b.style.margin = 0
     b.style.font = "default-tiny-bold"
     b.enabled = en
   end

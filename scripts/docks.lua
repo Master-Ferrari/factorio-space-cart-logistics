@@ -14,8 +14,10 @@
 --                          held, heading,             -- пойманная каретка + её курс
 --                          last_released,             -- не переловить только что опущенную
 --                          grab_conds, drop_conds,    -- условия захвата/отпускания (ДНФ)
---                          read_contents, emitted }   -- галочка «читать содержимое» + что
+--                          read_contents, emitted,    -- галочка «читать содержимое» + что
 --                                                     --   сейчас выведено в комбинатор
+--                          force_grab }               -- un: схватить в обход условий
+--                                                     --   (кнопка force grab в GUI)
 --
 -- УСЛОВИЯ ЗАХВАТА (шаг 4): «валидность» каретки = композиция сравнений по И/ИЛИ
 -- (семантика ДНФ: И крепче ИЛИ — «(a И b) ИЛИ c ИЛИ (d И e)»). grab_conds — массив
@@ -93,6 +95,17 @@ end
 
 local function key_of(d) return G.key_of_tile(d.x, d.y) end
 
+-- Замок инвентаря КАРЕТКИ, пока она под властью дока: bar = 1 на её
+-- script-инвентаре — нативное окно (E до захвата уже могло быть открыто и
+-- остаётся открытым) само рисует все слоты запертыми, игрок не вмешается.
+-- Скриптовым переносам (chest_load/unload, drain) bar не мешает —
+-- set_stack/clear пишут в обход. Разлок — при опускании/сносе дока.
+local function cart_inv_lock(cart, locked)
+  local inv = cart and cart.inv
+  if not (inv and inv.valid and inv.supports_bar()) then return end
+  if locked then inv.set_bar(1) else inv.set_bar() end
+end
+
 -- ── арм-оверлей (визуал состояния; сам док-комбинатор несёт только базу) ─
 local function make_arm(d)
   local e = d.entity
@@ -167,6 +180,7 @@ function Docks.dock_remove(entity)
     if cart then
       cart.docked = nil
       Docks.chest_drain(d, cart.inv, true)  -- груз обратно в каретку
+      cart_inv_lock(cart, false)
     end
   end
   Docks.chest_drain(d, nil)  -- страховка: осиротевший сундук — снести
@@ -427,15 +441,6 @@ function Docks.drain_held_cargo(key, buffer)
   if d then Docks.chest_drain(d, buffer, false) end
 end
 
--- LuaInventory сундука дока key — окно груза по E, пока каретка на доке.
--- Только в loaded: во время анимаций груз физически в каретке (сундук пуст и
--- заперт) — вернём nil, вызывающий (control.lua) откроет cart.inv.
-function Docks.held_inventory(key)
-  local d = storage.docks and storage.docks[key]
-  if not (d and d.state == "loaded") then return nil end
-  return Docks.chest_inv(d)
-end
-
 -- ПОЙМАННАЯ каретка как источник { map, q } — условия отпускания и drop-панель
 -- GUI. Груз в loaded физически лежит в сундуке, во время анимаций — в cart.inv
 -- (ровно один из двух непуст), поэтому суммируем оба источника.
@@ -631,7 +636,9 @@ local function grab(d, un)
   Docks.chest_create(d)  -- пустой запертый сундук; груз едет в каретке до loaded
   d.held, d.heading = un, heading
   d.watch, d.watch_i = nil, nil
+  d.force_grab = nil  -- принудительный хват (если был) исполнен
   d.state = "take"  -- arm остаётся REACH — реверс руки с кареткой
+  cart_inv_lock(cart, true)  -- инвентарь каретки заперт, пока она под властью дока
 end
 
 -- 7.5/7.6: опустить пойманную каретку на целевой тайл. Курс = heading; лобовой
@@ -649,6 +656,7 @@ local function try_drop(d, held_cart)
     -- случай остатков в сундуке (старый сейв), дальше он просто сносится
     Docks.chest_drain(d, held_cart.inv, true)
     held_cart.docked = nil
+    cart_inv_lock(held_cart, false)  -- каретка снова сама по себе — инвентарь открыт
     d.last_released = d.held
     d.held, d.heading = nil, nil
     d.state, d.arm = "retract", REACH
@@ -776,6 +784,12 @@ function Docks.on_tick()
         local c = storage.carts[d.last_released]
         if not (c and c.cursor and c.cursor.tile == d.tkey) then d.last_released = nil end
       end
+      -- принудительный хват: цель уехала/пропала с целевого тайла → флаг снять
+      -- (иначе он безусловно схватил бы СЛЕДУЮЩУЮ каретку)
+      if d.force_grab then
+        local c = storage.carts[d.force_grab]
+        if not (c and c.cursor and c.cursor.tile == d.tkey) then d.force_grab = nil end
+      end
       if d.enabled and (d.state == "idle" or d.state == "reach" or d.state == "retract") then
         local list = free[d.tkey]
         if not list then list = {}; free[d.tkey] = list end
@@ -822,8 +836,10 @@ function Docks.on_tick()
       local taken = {}
       for _, d in ipairs(dlist) do
         for _, a in ipairs(alist) do
-          if not taken[a.un] and a.un ~= d.last_released
-            and Docks.grab_valid(ctx, d, a.un, a.cart) then
+          -- force_grab (кнопка force grab в GUI): цель валидна БЕЗ условий,
+          -- гард last_released тоже в обход — игрок сказал «хватай»
+          if not taken[a.un] and (a.un == d.force_grab
+            or (a.un ~= d.last_released and Docks.grab_valid(ctx, d, a.un, a.cart))) then
             claim[d] = a
             taken[a.un] = true
             break
@@ -916,6 +932,7 @@ function Docks.rebuild()
           d.state = dropping and "drop" or "loaded"
           d.arm = dropping and REACH or 0
           cart.docked = key
+          cart_inv_lock(cart, true)  -- и миграция сейвов без замка
           local ch = chests[key]
           if ch then
             d.chest = ch

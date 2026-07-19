@@ -143,6 +143,10 @@ dock.max_health = 200
 -- маски) с доком не конфликтуют — док можно ставить вплотную к линии
 dock.collision_box = { { -0.45, -0.45 }, { 0.45, 0.45 } }
 dock.selection_box = { { -0.5, -0.5 }, { 0.5, 0.5 } }
+-- Выше каретки (у той 60, чтобы бить рельс): пойманная каретка стоит на тайле
+-- дока и иначе перекрывала бы его курсору — кликается ДОК, окно у него общее
+-- (слоты груза внутри). На чужие тайлы не влияет: selection_box дока — 1 тайл.
+dock.selection_priority = 70
 dock.sprites = util.empty_sprite()
 dock.activity_led_sprites = util.empty_sprite()
 dock.next_upgrade = nil
@@ -334,6 +338,17 @@ gstyle["gofarovich-scl-cond-fulfilled-frame"] = {
   type = "frame_style",
   parent = "decider_combinator_frame",
   graphical_set = gstyle.decider_combinator_fulfilled_condition_frame.graphical_set,
+}
+
+-- Белая вертикальная скобка И-группы условий дока (колонка слева от карточек,
+-- как у ванильного decider-комбинатора). Заливка — свой 1×1 white.png
+-- (координаты в ванильных атласах — лотерея), ширину/высоту задаёт код.
+gstyle["gofarovich-scl-and-bracket"] = {
+  type = "empty_widget_style",
+  graphical_set = {
+    base = { filename = "__space-cart-logistics__/graphics/white.png",
+             size = { 1, 1 }, opacity = 0.85 },
+  },
 }
 
 -- Рецепты + исследование (даёт доступ к рельсам/кареткам из инвентаря). Открывается
