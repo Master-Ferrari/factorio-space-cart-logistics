@@ -257,18 +257,26 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
 
   if cond.ctype == "quality" or cond.ctype == "slots" then
     -- числовая строка: левый «операнд» зафиксирован (качество каретки / её
-    -- пустые слоты, источник задан панелью) — погашенный слот-иконка, без галочек
+    -- пустые слоты, источник задан панелью) — слот-иконка без галочек. НЕ
+    -- enabled=false (серая иконка читалась как «выключено»), а
+    -- ignored_by_interaction: обычная отрисовка, но не кликается и не ховерится
+    -- (тултип при этом живёт — ловит невидимый враппер).
     local is_q = cond.ctype == "quality"
     local tipbase = is_q and "cond-quality-" or "cond-slots-"
-    -- симметрия с logic-строкой: у её левого операнда столбец галочек R/G/C —
-    -- здесь его нет (операнд предустановлен), ставим спейсер той же ширины
-    local pad = row.add{ type = "empty-widget" }
-    pad.style.width = 36
-    local anyq = row.add{ type = "sprite-button", style = "slot_button",
-      sprite = is_q and "utility/any_quality" or "utility/slots_view",
+    -- вместо столбца галочек R/G/C (у logic-строки) — двухстрочная подпись
+    -- зафиксированного операнда «Cart quality» / «Empty slots» (места мало,
+    -- поэтому в две строки, мелким шрифтом)
+    local lbl = row.add{ type = "label",
+      caption = { "gofarovich-scl-gui." .. (is_q and "cond-lbl-quality" or "cond-lbl-slots") } }
+    lbl.style.font = "default-small"
+    lbl.style.single_line = false
+    lbl.style.width = 44
+    local anywrap = row.add{ type = "flow",
       tooltip = { "gofarovich-scl-gui." .. tipbase .. (kind == "d" and "held" or "cart") } }
+    local anyq = anywrap.add{ type = "sprite-button", style = "slot_button",
+      sprite = is_q and "utility/any_quality" or "utility/slots_view" }
     anyq.style.size = 44
-    anyq.enabled = false
+    anyq.ignored_by_interaction = true
 
     local dd = row.add{ type = "drop-down", name = GUIDock.DK .. "cmp" .. sfx,
       items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
@@ -379,9 +387,11 @@ end
 -- ── всплывающее меню типов условия («+ Add condition», как у поездов) ─
 -- Отдельное окошко в gui.screen (инлайн-вариант резался скролл-панелью):
 -- ставится ПОД точкой клика (клик всегда по кнопке ⇒ под кнопкой); если внизу
--- экрана не хватает места — над ней. Живёт до выбора/повторного клика/любой
--- пересборки окна дока (позиции кнопок сдвигаются). storage.dock_gui_addmenu[pi]
--- = which ("grab"/"drop") — для тоггла и подсветки кнопки.
+-- экрана не хватает места — над ней. Живёт до выбора/повторного клика/закрытия
+-- окна дока; автоматические ПЕРЕСБОРКИ окна (события кареток: хват/отпуск)
+-- меню ПЕРЕЖИВАЕТ — GUIDock.open переносит toggled на свежие кнопки и
+-- поднимает меню поверх нового фрейма (иначе его выбивало из-под курсора).
+-- storage.dock_gui_addmenu[pi] = which ("grab"/"drop") — тоггл и подсветка.
 local ADDMENU = "gofarovich-scl-dock-addmenu"
 local MENU_W, MENU_H = 200, 108  -- оценка габаритов в GUI-юнитах (для флипа/клампа)
 
@@ -606,7 +616,6 @@ function GUIDock.close(player)
 end
 
 function GUIDock.open(player, d)
-  close_addmenu(player)  -- пересборка сдвигает кнопки — всплывающее меню закрыть
   local old = player.gui.screen[GUIDock.FRAME]
   local loc = old and old.location
   if old then old.destroy() end
@@ -659,9 +668,19 @@ function GUIDock.open(player, d)
   if loc then frame.location = loc else frame.auto_center = true end
   st.rows = rows
   st.addbtns = btns
+  -- всплывающее меню типов условия ПЕРЕЖИВАЕТ пересборку (окно переоткрывают
+  -- события кареток — хват/отпуск, — и закрывать меню под курсором игрока
+  -- нельзя): переносим toggled на свежие кнопки и держим меню поверх нового окна
+  local menu = storage.dock_gui_addmenu and storage.dock_gui_addmenu[player.index]
+  for k, b in pairs(btns) do
+    b.toggled = (menu ~= nil and KIND_WHICH[k] == menu)
+  end
   storage.dock_gui_open[player.index] = key
   storage.dock_gui_live[player.index] = st
   player.opened = frame
+  -- свежий фрейм окна встал ПОЗЖЕ меню в gui.screen (рисуется поверх) — меню наверх
+  local pop = player.gui.screen[ADDMENU]
+  if pop then pop.bring_to_front() end
   -- окно инвентаря игрока: живёт вместе с окном дока, пока горит галочка
   if storage.dock_gui_pinv and storage.dock_gui_pinv[player.index] then
     open_pinv(player, st)
@@ -950,7 +969,8 @@ function GUIDock.register_events()
       local ctype = (field == "addqual" and "quality")
         or (field == "addslots" and "slots") or nil
       Docks.cond_add(d, which, ctype)
-      GUIDock.open(player, d)  -- open закрывает всплывающее меню сам
+      close_addmenu(player)  -- выбор сделан — меню закрыть (open его теперь хранит)
+      GUIDock.open(player, d)
     elseif field == "link" then
       Docks.cond_toggle_link(d, which, idx)
       GUIDock.open(player, d)

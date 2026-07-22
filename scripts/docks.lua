@@ -13,6 +13,9 @@
 --                          watch, watch_i,            -- за кем следит рука (un, cursor.i)
 --                          held, heading,             -- пойманная каретка + её курс
 --                          last_released,             -- не переловить только что опущенную
+--                          release_i,                 --   ЭТИМ доком, пока уезжает: un +
+--                                                     --   cursor.i на прошлый тик (гард по
+--                                                     --   движению, не по таймеру)
 --                          grab_conds, drop_conds,    -- условия захвата/отпускания (ДНФ)
 --                          read_contents, emitted,    -- галочка «читать содержимое» + что
 --                                                     --   сейчас выведено в комбинатор
@@ -54,14 +57,16 @@
 --   retract (7.7) откат пустой руки 16→0 → idle. Пока не idle — док не ловит
 --                 (без мгновенного перелова только что опущенной каретки).
 --
--- Несколько доков на один рельс-тайл: доки в порядке приоритета стороны света
--- N>E>S>W (сторона дока относительно тайла = OPP(dir), тот же тай-брейк, что у
--- голов составов — movement.md) разбирают подъезжающие каретки: каждый берёт
--- ближнюю к центру ВАЛИДНУЮ ДЛЯ НЕГО незанятую (разные фильтры на одном тайле —
--- легальный паттерн: каретка невалидная для старшего дока достаётся младшему).
--- Детерминизм: обход доков по сортированным ключам; распределение по тайлам
--- независимо (док целится в один тайл, каретка подъезжает к одному), внутри
--- тайла — приоритет сторон + (max cursor.i, тай-брейк меньший unit_number).
+-- Несколько доков на один рельс-тайл: КАРЕТКИ (ближняя к центру раньше: max
+-- cursor.i, тай-брейк меньший unit_number) выбирают себе док. Приоритет дока —
+-- относительно КУРСА каретки: перед (въезжает прямо в док) > справа от головы >
+-- слева > сзади; учитываются только доки, ДЛЯ КОТОРЫХ каретка валидна (разные
+-- фильтры на одном тайле — легальный паттерн: невалидная для переднего дока
+-- достаётся боковому). Повторные отпускания на том же тайле — ЭСТАФЕТА
+-- (cart.dock_served): уже хватавшие уходят в конец очереди, полный круг
+-- начинается заново. Детерминизм: обход доков по сортированным ключам;
+-- распределение по тайлам независимо; ранги внутри тайла уникальны (одна
+-- сторона — один док).
 
 local util = require("util")
 local G = require("scripts.geometry")
@@ -623,6 +628,36 @@ local function carry_cart(d)
   e.teleport({ x = d.x + 0.5 + dxy[1] * t, y = d.y + 0.5 + dxy[2] * t })
 end
 
+-- Перебор доков одного тайла (карусель): пометить «этот док каретку на этом
+-- тайле уже обслуживал» — при следующих передачах очередь сдвигается на не
+-- обслуживавших. Повторное обслуживание тем же доком = все желающие уже
+-- обслуживали → новый круг (сброс отметок, кроме этого дока).
+local function mark_served(d, cart)
+  local dk = key_of(d)
+  local s = cart.dock_served
+  if not (s and s.tile == d.tkey) or s[dk] then
+    s = { tile = d.tkey }
+    cart.dock_served = s
+  end
+  s[dk] = true
+end
+
+-- Ранг дока d ОТНОСИТЕЛЬНО КУРСА каретки (heading = мировая сторона, куда она
+-- едет): перед (каретка едет прямо в док) > справа от хода > слева > сзади.
+-- served — текущий cart.dock_served (или nil); уже обслуживавшие в этом круге
+-- штрафуются, но остаются в игре (не -inf) — единственный сосед на исходе
+-- круга обязан снова стать лучшим, иначе очередь встанет. forced (force_grab
+-- кнопка в GUI) — вне конкуренции.
+local function dock_rank(d, heading, served, forced)
+  local side = G.OPP[d.dir]
+  local rank = (side == heading) and 4
+    or (side == G.CW[heading]) and 3
+    or (side == G.CCW[heading]) and 2 or 1
+  if served and served[key_of(d)] then rank = rank - 10 end
+  if forced then rank = rank + 100 end
+  return rank
+end
+
 -- 7.3 «Взятие» — НЕ мгновенно: detach из состава сразу (с рельса каретка снята),
 -- дальше state="take" везёт её на клешне 16 кадров к доку (arm 16→0 → loaded).
 -- Телепорт на грабе не нужен: кончик клешни при arm=16 = центр тайла, где каретка
@@ -632,6 +667,7 @@ local function grab(d, un)
   if not (cart and cart.cursor) then return end
   local heading = cart.cursor.exit  -- мировой курс: куда ехала (помним до опускания)
   if not C.cart_detach(un) then return end
+  mark_served(d, cart)
   cart.docked = key_of(d)
   Docks.chest_create(d)  -- пустой запертый сундук; груз едет в каретке до loaded
   d.held, d.heading = un, heading
@@ -641,12 +677,85 @@ local function grab(d, un)
   cart_inv_lock(cart, true)  -- инвентарь каретки заперт, пока она под властью дока
 end
 
+-- Прямая передача каретки МЕЖДУ ДВУМЯ докАМИ одного тайла (карусель, вызывается
+-- из try_drop ДО реального опускания на рельс): каретка физически НЕ касается
+-- рельса — минуя convoys.lua. Это принципиально: обычное опускание сразу же
+-- присоединяет каретку к конвою с cursor.i = 32 (голова УЖЕ на дальнем краю
+-- тайла — cart_attach строит все 32 клетки тела от входа разом, «с ходу»), и
+-- на СЛЕДУЮЩЕМ тике convoys.on_tick (он идёт ПЕРЕД docks.on_tick) увозит её на
+-- соседний тайл раньше, чем docks.on_tick вообще успевает пересчитать пасс 2b —
+-- сосед-док никогда не видит кандидата. Прямая передача held→held этого не
+-- допускает: каретка остаётся «в руках» доков весь круг очереди.
+local function handoff(from, to, un, heading)
+  local cart = storage.carts[un]
+  if not cart then return end
+  Docks.chest_drain(from, nil)  -- груз уже в cart.inv (chest_unload на старте lower)
+  from.held, from.heading = nil, nil
+  from.state, from.arm = "retract", REACH  -- рука from убирается пустой
+
+  mark_served(to, cart)
+  cart.docked = key_of(to)
+  Docks.chest_create(to)
+  to.held, to.heading = un, heading
+  to.watch, to.watch_i = nil, nil
+  to.force_grab = nil
+  to.state, to.arm = "take", REACH  -- рука to «уже дотянулась» — реверс на loaded
+end
+
+-- Ищет среди doclist (доки того же тайла, свободные на начало тика — free[]) не
+-- занятого этим тиком (claim/handed) соседа, готового принять каретку (та же
+-- ранговая формула, что у пасса 2b: перед > право > лево > сзади). served —
+-- cart.dock_served (свежий тайл — иначе nil).
+-- ВАЖНО (в отличие от пасса 2b): уже обслуживавшие в этом круге здесь НЕ
+-- участвуют вовсе (жёсткое исключение, не штраф −10) — иначе при вечно
+-- истинных условиях хендофф всегда находил бы «уже обслужившего» соседа и
+-- каретка никогда не пробовала бы реально сесть на рельс (застревала на
+-- тайле навсегда, даже если путь дальше свободен). Полный круг пройден (все
+-- доки тайла отметились) → pick_handoff возвращает nil → try_drop реально
+-- пытается cart_attach; если получилось и путь свободен — каретка уезжает; не
+-- получилось (тупик/затор) — движение-гард last_released это заметит, и она
+-- вернётся в дело как честный approach-кандидат пасса 2b (mark_served увидит
+-- «уже обслужен» у победителя и откроет НОВЫЙ круг — оттуда хендофф снова
+-- находит свежих необслуженных соседей). force_grab бьёт исключение — игрок
+-- явно указал конкретного получателя.
+local function pick_handoff(ctx, from, un, cart, heading, doclist, claim, handed)
+  if not doclist then return nil end
+  local served = cart.dock_served
+  if served and served.tile ~= from.tkey then served = nil end
+  local best, best_rank
+  for _, d2 in ipairs(doclist) do
+    if d2 ~= from and not (claim and claim[d2]) and not (handed and handed[d2]) then
+      local forced = un == d2.force_grab
+      local already_served = served and served[key_of(d2)]
+      if forced or (not already_served and Docks.grab_valid(ctx, d2, un, cart)) then
+        local rank = dock_rank(d2, heading, served, forced)
+        if not best or rank > best_rank then best, best_rank = d2, rank end
+      end
+    end
+  end
+  return best
+end
+
 -- 7.5/7.6: опустить пойманную каретку на целевой тайл. Курс = heading; лобовой
 -- (курс ведёт в док) — инвертируем, чтобы уехала. Пока целевой прямой путь этого
 -- курса не существует (галочки сменили / рельс снесли) или окно клеток занято —
 -- держим кадр и ждём (доку торопиться некуда).
-local function try_drop(d, held_cart)
+-- ctx/doclist/claim/handed — контекст текущего тика Docks.on_tick (см. pick_handoff);
+-- nil у doclist (вызов вне on_tick, если появится) просто пропускает хендофф.
+local function try_drop(d, held_cart, ctx, doclist, claim, handed)
   local heading = d.heading or d.dir  -- страховка: без курса — прочь от дока по его оси
+
+  -- КАРУСЕЛЬ (docs/docks.md): прежде чем реально сажать каретку на рельс,
+  -- смотрим — не ждёт ли её на этом же тайле следующий по очереди док. Если
+  -- да — каретка НИКОГДА физически не покидает тайл, пока круг не пройден
+  -- (handoff, см. комментарий там про грабли convoys.on_tick).
+  local target = pick_handoff(ctx, d, d.held, held_cart, heading, doclist, claim, handed)
+  if target then
+    handoff(d, target, d.held, heading)
+    if handed then handed[target] = true end
+    return
+  end
+
   local exit = (heading == G.OPP[d.dir]) and d.dir or heading
   local entry = G.OPP[exit]
   local node = storage.rails[d.tkey]
@@ -657,7 +766,10 @@ local function try_drop(d, held_cart)
     Docks.chest_drain(d, held_cart.inv, true)
     held_cart.docked = nil
     cart_inv_lock(held_cart, false)  -- каретка снова сама по себе — инвентарь открыт
-    d.last_released = d.held
+    -- release_i = nil: первый тик после отпускания только СТАВИТ базу для
+    -- сравнения (гард выше не судит, пока её нет) — без этого первый тик после
+    -- дропа читался бы как «не сдвинулась» (release_i ещё не существовал бы).
+    d.last_released, d.release_i = d.held, nil
     d.held, d.heading = nil, nil
     d.state, d.arm = "retract", REACH
   end
@@ -676,8 +788,10 @@ end
 
 -- ── стейт-машина одного дока (один тик) ────────────────────────────
 -- cand = { un, i, cart } — закреплённая за доком каретка (пасс 2b) или nil.
--- ctx — кэш источников этого тика (условия отпускания в loaded).
-local function step(d, cand, ctx)
+-- ctx — кэш источников этого тика (условия отпускания в loaded, хендофф).
+-- doclist/claim/handed — соседи этого целевого тайла + служебные таблицы
+-- пасса 2b/3 текущего тика, нужны только состоянию "drop" (try_drop→handoff).
+local function step(d, cand, ctx, doclist, claim, handed)
   -- пойманную каретку снесли извне (майнинг/blackout/скрипт) — док разжимается;
   -- сундук сносим (майнинг уже слил груз добытчику синхронно — control.lua;
   -- смерть/blackout — груз гибнет вместе с кареткой)
@@ -721,7 +835,7 @@ local function step(d, cand, ctx)
   end
   if d.state == "drop" then      -- 7.6: держим каретку над рельсом, ждём места
     carry_cart(d)
-    try_drop(d, held_cart)
+    try_drop(d, held_cart, ctx, doclist, claim, handed)
     return
   end
 
@@ -764,9 +878,11 @@ function Docks.on_tick()
   for k in pairs(docks) do keys[#keys + 1] = k end
   table.sort(keys)  -- фиксированный порядок обхода (мультиплеер)
 
-  -- пасс 1: геометрия (dir/цель/enabled) + СВОБОДНЫЕ доки по целевым тайлам,
-  -- в порядке приоритета стороны. dir перечитываем из сущности: поворот дока
-  -- игроком (R) разрешён и подхватывается здесь без отдельного обработчика.
+  -- пасс 1: геометрия (dir/цель/enabled) + СВОБОДНЫЕ доки по целевым тайлам.
+  -- Порядок в списке (по стороне N>E>S>W) — только стабильность обхода:
+  -- приоритет выбора теперь считается в пассе 2b относительно курса каретки.
+  -- dir перечитываем из сущности: поворот дока игроком (R) разрешён и
+  -- подхватывается здесь без отдельного обработчика.
   local free = {}  -- tkey -> { dock, ... } по убыванию PRIO[OPP(dir)]
   for _, k in ipairs(keys) do
     local d = docks[k]
@@ -778,11 +894,24 @@ function Docks.on_tick()
       d.tkey = G.neighbor_tile(k, d.dir)
       local node = storage.rails[d.tkey]
       d.enabled = (node and (node.conns["N-S"] or node.conns["E-W"])) and true or false
-      -- гард перелова: только что опущенная снова ловится, лишь когда её голова
-      -- покинула целевой тайл (или каретки не стало)
+      -- гард перелова — ПО ДВИЖЕНИЮ, не по таймеру: только что опущенная не
+      -- ловится ЭТИМ доком, пока продолжает УЕЗЖАТЬ (cursor.i растёт тик от
+      -- тика — даём ей физически покинуть тайл). Как только прогресс
+      -- останавливается (застряла — тупик/затор чужой кареткой) ИЛИ голова
+      -- покинула целевой тайл (уехала) — гард снимается НЕМЕДЛЕННО (без
+      -- искусственной паузы): тупик-однушка не блокируется навсегда, а честно
+      -- уехавшая не получает шанс проехать чуть дальше и тут же вернуться назад.
+      -- Другие доки этого тайла (карусель dock_served) под этим гардом не ходят —
+      -- очередь крутится дальше сама, пока эта каретка «застряла».
       if d.last_released then
-        local c = storage.carts[d.last_released]
-        if not (c and c.cursor and c.cursor.tile == d.tkey) then d.last_released = nil end
+        local cur = storage.carts[d.last_released] and storage.carts[d.last_released].cursor
+        if not (cur and cur.tile == d.tkey) then
+          d.last_released, d.release_i = nil, nil  -- покинула тайл — уехала совсем
+        elseif d.release_i and cur.i <= d.release_i then
+          d.last_released, d.release_i = nil, nil  -- не сдвинулась за тик — застряла
+        else
+          d.release_i = cur.i  -- ещё едет — двигаем базу, ждём следующего тика
+        end
       end
       -- принудительный хват: цель уехала/пропала с целевого тайла → флаг снять
       -- (иначе он безусловно схватил бы СЛЕДУЮЩУЮ каретку)
@@ -825,35 +954,54 @@ function Docks.on_tick()
     end
   end
 
-  -- пасс 2b: распределение — доки тайла в порядке приоритета разбирают ближние
-  -- к центру ВАЛИДНЫЕ ДЛЯ СЕБЯ каретки (условия захвата, ДНФ). Тайлы независимы →
-  -- итерация pairs(free) детерминирована по результату.
+  -- пасс 2b: распределение — КАРЕТКИ выбирают доки (ближняя к центру раньше).
+  -- Приоритет дока — ОТНОСИТЕЛЬНО КУРСА каретки: перед (каретка въезжает прямо
+  -- в док) > справа от головы > слева > сзади. Сторона на тайле уникальна (один
+  -- док на сторону) → ранги без коллизий, детерминизм бесплатно. Перебор при
+  -- повторных отпусканиях — cart.dock_served: уже хватавшие эту каретку на этом
+  -- тайле доки уходят В КОНЕЦ очереди (пока есть не хватавшие желающие);
+  -- force_grab поверх всего. Тайлы независимы → pairs(free) детерминирован.
   local ctx = Docks.eval_ctx()
   local claim = {}  -- dock -> { un, i, cart }
   for tkey, dlist in pairs(free) do
     local alist = approach[tkey]
     if alist then
-      local taken = {}
-      for _, d in ipairs(dlist) do
-        for _, a in ipairs(alist) do
-          -- force_grab (кнопка force grab в GUI): цель валидна БЕЗ условий,
-          -- гард last_released тоже в обход — игрок сказал «хватай»
-          if not taken[a.un] and (a.un == d.force_grab
-            or (a.un ~= d.last_released and Docks.grab_valid(ctx, d, a.un, a.cart))) then
-            claim[d] = a
-            taken[a.un] = true
-            break
+      local used = {}  -- док уже закреплён за кареткой этого тика
+      for _, a in ipairs(alist) do
+        local heading = a.cart.cursor.exit
+        local served = a.cart.dock_served
+        if served and served.tile ~= tkey then served = nil end
+        local best, best_rank
+        for _, d in ipairs(dlist) do
+          if not used[d] then
+            -- force_grab (кнопка force grab в GUI): цель валидна БЕЗ условий,
+            -- гард last_released тоже в обход — игрок сказал «хватай»
+            local forced = a.un == d.force_grab
+            if forced or (a.un ~= d.last_released
+              and Docks.grab_valid(ctx, d, a.un, a.cart)) then
+              local rank = dock_rank(d, heading, served, forced)
+              if not best or rank > best_rank then best, best_rank = d, rank end
+            end
           end
+        end
+        if best then
+          claim[best] = a
+          used[best] = true
         end
       end
     end
   end
 
-  -- пасс 3: стейт-машины + вывод содержимого + визуал
+  -- пасс 3: стейт-машины + вывод содержимого + визуал. handed — доки, уже
+  -- получившие каретку ХЕНДОФФОМ в этом тике (в т.ч. до этого пасса — от
+  -- дока, чей ключ раньше по сортировке): без этой пометки два дока, ОБА
+  -- отпускающие СВОИХ (разных) кареток в один тик, могли бы схватиться за
+  -- ОДНОГО и того же свободного соседа (см. try_drop/pick_handoff).
+  local handed = {}
   for _, k in ipairs(keys) do
     local d = docks[k]
     if d then
-      step(d, claim[d], ctx)
+      step(d, claim[d], ctx, free[d.tkey], claim, handed)
       Docks.update_output(d)
       apply_visual(d)
     end
@@ -902,6 +1050,7 @@ function Docks.rebuild()
   for key, d in pairs(storage.docks or {}) do
     saved[key] = { held = d.held, heading = d.heading, state = d.state,
                    arm = d.arm, last_released = d.last_released,
+                   release_i = d.release_i,
                    grab_conds = d.grab_conds, drop_conds = d.drop_conds,
                    read_contents = d.read_contents }
   end
@@ -919,7 +1068,7 @@ function Docks.rebuild()
       local key = G.key_of_tile(G.tile_of(e.position))
       local s, d = saved[key], storage.docks[key]
       if s and d then
-        d.last_released = s.last_released
+        d.last_released, d.release_i = s.last_released, s.release_i
         d.grab_conds = s.grab_conds
         d.drop_conds = s.drop_conds
         d.read_contents = s.read_contents
