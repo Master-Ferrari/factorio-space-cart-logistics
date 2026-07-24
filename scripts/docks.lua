@@ -100,6 +100,22 @@ end
 
 local function key_of(d) return G.key_of_tile(d.x, d.y) end
 
+-- Упирается ли курс heading (продолжай каретка ехать им дальше с тайла tkey) в
+-- ЧУЖУЮ клешню — док, стоящий на соседнем тайле по ходу и смотрящий НАЗАД
+-- (его dir == OPP(heading))? Тайловая, а не «свой/чужой» проверка — раньше
+-- лобовым считался только САМ отпускающий док (`heading == OPP(d.dir)`), из-за
+-- чего на тайле с несколькими докам карусель НИКОГДА не давала слово именно
+-- лобовому: он «перед» = высший ранг = обслуживается ПЕРВЫМ в круге, а
+-- реальную посадку на рельс пробует всегда ПОСЛЕДНИЙ (боковой) — и раз за
+-- разом пытается уехать прямо в стену, снова застревая. Один и тот же
+-- физический тупик виден всем докам тайла одинаково, поэтому проверка теперь
+-- по тайлу: O(1) — сосед по ходу однозначно вычисляется геометрией. Общая для
+-- start_release/try_drop (карусель) и dock_remove (снос с кареткой в руке).
+local function heading_blocked(tkey, heading)
+  local ahead = storage.docks[G.neighbor_tile(tkey, heading)]
+  return ahead ~= nil and ahead.dir == G.OPP[heading]
+end
+
 -- Замок инвентаря КАРЕТКИ, пока она под властью дока: bar = 1 на её
 -- script-инвентаре — нативное окно (E до захвата уже могло быть открыто и
 -- остаётся открытым) само рисует все слоты запертыми, игрок не вмешается.
@@ -171,9 +187,8 @@ function Docks.dock_add(entity)
   if sec then sec.filters = {} end
 end
 
--- Снос дока: пойманная каретка остаётся стоять на месте дока (запись с convoy=nil —
--- легальное состояние «каретка без рельса»), груз из сундука возвращается в неё;
--- игрок добывает её отдельно.
+-- Снос дока: груз из сундука возвращается в каретку. Пойманная (если была) не
+-- зависает без рельса — см. попытку посадки/взрыва ниже.
 function Docks.dock_remove(entity)
   local docks = storage.docks
   if not docks then return end
@@ -186,6 +201,31 @@ function Docks.dock_remove(entity)
       cart.docked = nil
       Docks.chest_drain(d, cart.inv, true)  -- груз обратно в каретку
       cart_inv_lock(cart, false)
+      -- Снос дока с кареткой в руке: пробуем посадить её на целевой рельс —
+      -- та же логика, что реальная посадка в try_drop (heading_blocked решает
+      -- инверсию по тайлу, не по тому, был ли лобовым именно ЭТОТ док — если
+      -- на тайле есть сосед, целящийся навстречу, значит прямо ехать некуда
+      -- независимо от того, кто именно сейчас держит каретку; окно 32 клеток
+      -- должно быть свободно). Получилось — едет дальше как обычная каретка.
+      -- Не получилось (рельса нет / галочки сменили / место занято другой
+      -- кареткой) — взрывается, как при блэкауте (`C.blackout_tile` по
+      -- фактической мировой позиции; для каретки без состава/следа он сам
+      -- падает на неё — cart_on_tile).
+      local heading = d.heading or d.dir
+      local exit = heading_blocked(d.tkey, heading) and G.OPP[heading] or heading
+      local entry = G.OPP[exit]
+      local node = storage.rails[d.tkey]
+      local attached = node and node.conns[G.CONN[entry][exit]]
+        and C.cart_attach(d.held, d.tkey, entry, exit, true)
+      if attached then
+        cart.dock_reversed = nil
+      else
+        local e = cart.entity
+        if e and e.valid then
+          local ex, ey = G.tile_of(e.position)
+          C.blackout_tile(ex, ey)
+        end
+      end
     end
   end
   Docks.chest_drain(d, nil)  -- страховка: осиротевший сундук — снести
@@ -736,10 +776,42 @@ local function pick_handoff(ctx, from, un, cart, heading, doclist, claim, handed
   return best
 end
 
--- 7.5/7.6: опустить пойманную каретку на целевой тайл. Курс = heading; лобовой
--- (курс ведёт в док) — инвертируем, чтобы уехала. Пока целевой прямой путь этого
--- курса не существует (галочки сменили / рельс снесли) или окно клеток занято —
--- держим кадр и ждём (доку торопиться некуда).
+-- Начало 7.5 (loaded → lower): анимация пошла (груз обратно в каретку, сундук
+-- заперт), общий код обоих источников отпускания (ручной Docks.release и
+-- авто-триггер условий в step()). Заодно — визуальный разворот каретки, курс
+-- которой упирается в чужую клешню (heading_blocked, тайловая проверка — не
+-- «сам ли я лобовой», см. её комментарий): раньше он происходил щелчком в
+-- last-tick try_drop (курсор пересобирался с нуля прямо перед посадкой на
+-- рельс — все 16 кадров 7.5 каретка «смотрела» ещё внутрь дока), теперь —
+-- сразу, с первого кадра анимации выноса. `d.heading` НЕ трогаем: это «откуда
+-- каретка ехала», основа ранга хендоффа/пасса 2b (перед/право/лево) —
+-- развернуть исход, не меняя его, иначе право и лево у ранга поехали бы для
+-- будущих соседей.
+-- `cart.dock_reversed` — флип уже случился в ЭТОМ круге держания: тайловая
+-- проверка (в отличие от старой «сам ли я лобовой») даёт ОДИНАКОВЫЙ ответ на
+-- каждом хопе карусели, поэтому без флага start_release крутил бы каретку
+-- туда-сюда на каждой передаче хендоффом. Снимается при фактическом отъезде
+-- на рельс (try_drop) — до тех пор держится, сколько бы доков её ни передавали.
+local function start_release(d, cart)
+  local heading = d.heading or d.dir
+  if not cart.dock_reversed and heading_blocked(d.tkey, heading)
+    and cart.entity and cart.entity.valid then
+    cart.facing = C.opp_facing(cart.facing)
+    cart.entity.graphics_variation = cart.facing
+    cart.dock_reversed = true
+  end
+  d.state, d.arm = "lower", 0
+  Docks.chest_unload(d)
+end
+
+-- 7.5/7.6: опустить пойманную каретку на целевой тайл. Курс = heading; упирается
+-- в чужую клешню (heading_blocked) — инвертируем, чтобы уехала (сам визуальный
+-- разворот уже случился в start_release; здесь только пересборка курсора под
+-- итоговый exit — та же тайловая проверка, не «сам ли я лобовой», иначе бы
+-- реальную посадку почти всегда пробовал НЕлобовой сосед последним в круге и
+-- раз за разом упирался бы в стену — см. heading_blocked). Пока целевой прямой
+-- путь этого курса не существует (галочки сменили / рельс снесли) или окно
+-- клеток занято — держим кадр и ждём (доку торопиться некуда).
 -- ctx/doclist/claim/handed — контекст текущего тика Docks.on_tick (см. pick_handoff);
 -- nil у doclist (вызов вне on_tick, если появится) просто пропускает хендофф.
 local function try_drop(d, held_cart, ctx, doclist, claim, handed)
@@ -756,7 +828,7 @@ local function try_drop(d, held_cart, ctx, doclist, claim, handed)
     return
   end
 
-  local exit = (heading == G.OPP[d.dir]) and d.dir or heading
+  local exit = heading_blocked(d.tkey, heading) and G.OPP[heading] or heading
   local entry = G.OPP[exit]
   local node = storage.rails[d.tkey]
   if not (node and node.conns[G.CONN[entry][exit]]) then return end
@@ -765,6 +837,7 @@ local function try_drop(d, held_cart, ctx, doclist, claim, handed)
     -- случай остатков в сундуке (старый сейв), дальше он просто сносится
     Docks.chest_drain(d, held_cart.inv, true)
     held_cart.docked = nil
+    held_cart.dock_reversed = nil  -- уехала по-настоящему — флаг разворота снят
     cart_inv_lock(held_cart, false)  -- каретка снова сама по себе — инвентарь открыт
     -- release_i = nil: первый тик после отпускания только СТАВИТ базу для
     -- сравнения (гард выше не судит, пока её нет) — без этого первый тик после
@@ -781,8 +854,7 @@ end
 function Docks.release(key)
   local d = storage.docks and storage.docks[key]
   if not (d and d.state == "loaded" and d.held) then return false end
-  d.state = "lower"  -- arm с 0 растёт в step
-  Docks.chest_unload(d)  -- анимация пошла: груз обратно в каретку, сундук заперт
+  start_release(d, storage.carts[d.held])  -- arm с 0 растёт в step
   return true
 end
 
@@ -813,8 +885,7 @@ local function step(d, cand, ctx, doclist, claim, handed)
     local conds = d.drop_conds
     if conds and #conds > 0 and held_cart
       and Docks.conds_true(ctx, d, conds, Docks.held_src(ctx, d)) then
-      d.state, d.arm = "lower", 0
-      Docks.chest_unload(d)  -- анимация пошла: груз обратно в каретку, сундук заперт
+      start_release(d, held_cart)
     end
     return
   end
