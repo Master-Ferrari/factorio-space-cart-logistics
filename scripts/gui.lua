@@ -14,78 +14,90 @@
 -- панель, и применение условий в маршруте (R.pick_exit). Правый операнд: сигнал-слот
 -- или константа-кнопка (открывает поп-ап ввода). Геометрия — только галочки.
 
-local G = require("scripts.geometry")
-local R = require("scripts.rails")
-local Events = require("scripts.events")
-local GUIDock = require("scripts.gui_dock")  -- диспатч результата пикера (target.dock)
-local SP = require("__gglib__.signal_picker")  -- общий пикер из мода-библиотеки gglib
-local SB = require("__gglib__.signal_button")  -- кнопка-слот операнда из gglib (открывает пикер)
-local CS = require("__gglib__.connection_status")  -- субхедер «к чему подключено» из gglib
+local G            = require("scripts.geometry")
+local R            = require("scripts.rails")
+local Events       = require("scripts.events")
+local GUIDock      = require("scripts.gui_dock")  -- диспатч результата пикера (target.dock)
+local SP           = require("__gglib__.signal_picker") -- общий пикер из мода-библиотеки gglib
+local SB           = require("__gglib__.signal_button") -- кнопка-слот операнда из gglib (открывает пикер)
+local CS           = require("__gglib__.connection_status") -- субхедер «к чему подключено» из gglib
 
-local GUI = {}
+local GUI          = {}
 
 -- Подсветка выполненного условия (как у decider-комбинатора): вместо обычной заливки
 -- карточки — «fulfilled»-рамка. Чтобы даже 1-тиковое срабатывание было заметно глазу,
 -- держим подсветку LIT_HOLD тиков после последнего «истинно» (латч в on_tick).
 local FRAME_NORMAL = "decider_combinator_frame"
-local FRAME_LIT    = "gofarovich-scl-cond-fulfilled-frame"  -- decider_combinator_frame + зелёная рамка fulfilled (data.lua); растяжку даём поэлементно (row_card/apply_lit)
+local FRAME_LIT    =
+"gofarovich-scl-cond-fulfilled-frame"                      -- decider_combinator_frame + зелёная рамка fulfilled (data.lua); растяжку даём поэлементно (row_card/apply_lit)
 local LIT_HOLD     = 1
 
-GUI.FRAME       = "gofarovich-scl-gui"
-GUI.CLOSE       = "gofarovich-scl-close"
-GUI.MANUAL      = "gofarovich-scl-manual"
-GUI.CONDITIONS  = "gofarovich-scl-conditions"     -- чекбокс мастер-переключателя
-GUI.CONN_CHECK  = "gofarovich-scl-conn-"          -- + ключ соединения (N-S, ...)
-GUI.NEWCOND     = "gofarovich-scl-newcond"
-GUI.CAT_DEL     = "gofarovich-scl-cat-del-"       -- + entry
-GUI.CAT_UP      = "gofarovich-scl-catup-"         -- + entry (визуальный реордер категории)
-GUI.CAT_DN      = "gofarovich-scl-catdn-"         -- + entry
-GUI.CN          = "gofarovich-scl-cn-"            -- условие: + <field>-<entry>-<idx>
-GUI.POPUP       = "gofarovich-scl-dirpopup"
-GUI.POPUP_CLOSE = "gofarovich-scl-dirpopup-close"
-GUI.DIRBTN      = "gofarovich-scl-dirbtn-"        -- + <entry>-<exit>
+GUI.FRAME          = "gofarovich-scl-gui"
+GUI.CLOSE          = "gofarovich-scl-close"
+GUI.MANUAL         = "gofarovich-scl-manual"
+GUI.CONDITIONS     = "gofarovich-scl-conditions" -- чекбокс мастер-переключателя
+GUI.CONN_CHECK     = "gofarovich-scl-conn-"   -- + ключ соединения (N-S, ...)
+GUI.NEWCOND        = "gofarovich-scl-newcond"
+GUI.CAT_DEL        = "gofarovich-scl-cat-del-" -- + entry
+GUI.CAT_UP         = "gofarovich-scl-catup-"  -- + entry (визуальный реордер категории)
+GUI.CAT_DN         = "gofarovich-scl-catdn-"  -- + entry
+GUI.CN             = "gofarovich-scl-cn-"     -- условие: + <field>-<entry>-<idx>
+GUI.POPUP          = "gofarovich-scl-dirpopup"
+GUI.POPUP_CLOSE    = "gofarovich-scl-dirpopup-close"
+GUI.DIRBTN         = "gofarovich-scl-dirbtn-" -- + <entry>-<exit>
 -- Ввод константы переехал в подокно пикера (__gglib__/signal_picker, «Or set a constant»).
 
 -- Слои вьюпорта: база + цветной путь на соединение (порядок наложения = порядок битов).
-local VP_BASE   = "gofarovich-scl-vp-base"
-local VP_PREFIX = "gofarovich-scl-vp-"
-local CONN_ORDER = { "N-S", "E-W", "N-E", "N-W", "S-E", "S-W" }
+local VP_BASE      = "gofarovich-scl-vp-base"
+local VP_PREFIX    = "gofarovich-scl-vp-"
+local CONN_ORDER   = { "N-S", "E-W", "N-E", "N-W", "S-E", "S-W" }
 
 -- 6 соединений → клетка 3×3 (компас-якоря) поверх вьюпорта.
-local CONN_CELL = {
-  ["N-W"] = { 1, 1 }, ["N-S"] = { 1, 2 }, ["N-E"] = { 1, 3 },
+local CONN_CELL    = {
+  ["N-W"] = { 1, 1 },
+  ["N-S"] = { 1, 2 },
+  ["N-E"] = { 1, 3 },
   ["E-W"] = { 2, 1 },
-  ["S-W"] = { 3, 1 },                     ["S-E"] = { 3, 3 },
+  ["S-W"] = { 3, 1 },
+  ["S-E"] = { 3, 3 },
 }
 
 -- Стрелка «въезда» в шапке категории (куда смотрит каретка на входе).
-local CAT_ARROW = { N = "▼", S = "▲", E = "◀", W = "▶" }
+local CAT_ARROW    = { N = "▼", S = "▲", E = "◀", W = "▶" }
 
 -- Раскладка поп-апа «Select direction» — 12 направлений (вход→выход) компасом 5×5.
-local DIR_CELL = {
-  ["N-W"] = { 1, 2 }, ["N-S"] = { 1, 3 }, ["N-E"] = { 1, 4 },  -- Top in
-  ["W-N"] = { 2, 1 }, ["W-E"] = { 3, 1 }, ["W-S"] = { 4, 1 },  -- Left in
-  ["E-N"] = { 2, 5 }, ["E-W"] = { 3, 5 }, ["E-S"] = { 4, 5 },  -- Right in
-  ["S-W"] = { 5, 2 }, ["S-N"] = { 5, 3 }, ["S-E"] = { 5, 4 },  -- Bottom in
+local DIR_CELL     = {
+  ["N-W"] = { 1, 2 },
+  ["N-S"] = { 1, 3 },
+  ["N-E"] = { 1, 4 },                                         -- Top in
+  ["W-N"] = { 2, 1 },
+  ["W-E"] = { 3, 1 },
+  ["W-S"] = { 4, 1 },                                         -- Left in
+  ["E-N"] = { 2, 5 },
+  ["E-W"] = { 3, 5 },
+  ["E-S"] = { 4, 5 },                                         -- Right in
+  ["S-W"] = { 5, 2 },
+  ["S-N"] = { 5, 3 },
+  ["S-E"] = { 5, 4 },                                         -- Bottom in
 }
 
-local COMPARATORS = { "<", ">", "=", "≥", "≤", "≠" }
+local COMPARATORS  = { "<", ">", "=", "≥", "≤", "≠" }
 local function cmp_index(c)
   for i, v in ipairs(COMPARATORS) do if v == c then return i end end
-  return 3  -- "="
+  return 3 -- "="
 end
 
 -- ── общие куски окна ────────────────────────────────────────────────
 local function add_titlebar(frame, title, close_name)
-  local bar = frame.add{ type = "flow", direction = "horizontal" }
+  local bar = frame.add { type = "flow", direction = "horizontal" }
   bar.drag_target = frame
-  bar.add{ type = "label", style = "frame_title", caption = title, ignored_by_interaction = true }
-  local filler = bar.add{ type = "empty-widget", style = "draggable_space_header" }
+  bar.add { type = "label", style = "frame_title", caption = title, ignored_by_interaction = true }
+  local filler = bar.add { type = "empty-widget", style = "draggable_space_header" }
   filler.style.height = 24
   filler.style.horizontally_stretchable = true
   filler.style.right_margin = 4
   filler.drag_target = frame
-  bar.add{
+  bar.add {
     type = "sprite-button", name = close_name, style = "frame_action_button",
     sprite = "utility/close", hovered_sprite = "utility/close_black",
     clicked_sprite = "utility/close", tooltip = { "gui.close" },
@@ -95,7 +107,7 @@ end
 -- 3×3 галочки-компас поверх вьюпорта (только в manual): состояние = бит ручной маски.
 -- VIEW = натуральный размер текстур вьюпорта (256, граф. 1:1, дальше — апскейл/блюр).
 local VIEW = 256
-local COND_WIDTH = 406  -- ширина окна при открытых условиях
+local COND_WIDTH = 406 -- ширина окна при открытых условиях
 local function add_path_checks(overlay, node)
   local at = {}
   for conn, rc in pairs(CONN_CELL) do
@@ -103,10 +115,10 @@ local function add_path_checks(overlay, node)
     at[rc[1]][rc[2]] = conn
   end
   for r = 1, 3 do
-    local row = overlay.add{ type = "flow", direction = "horizontal" }
+    local row = overlay.add { type = "flow", direction = "horizontal" }
     row.style.horizontal_spacing = 0
     for c = 1, 3 do
-      local cell = row.add{ type = "flow", direction = "vertical" }
+      local cell = row.add { type = "flow", direction = "vertical" }
       cell.style.width = VIEW / 3
       cell.style.height = VIEW / 3
       cell.style.horizontal_align = "center"
@@ -114,14 +126,14 @@ local function add_path_checks(overlay, node)
       local conn = at[r] and at[r][c]
       if conn then
         local on = bit32.band(node.manual_mask or 0, bit32.lshift(1, G.CONN_BIT[conn])) ~= 0
-        cell.add{ type = "checkbox", name = GUI.CONN_CHECK .. conn, state = on }
+        cell.add { type = "checkbox", name = GUI.CONN_CHECK .. conn, state = on }
       end
     end
   end
 end
 
 local function add_layer(stack, sprite)
-  local el = stack.add{ type = "sprite", sprite = sprite }
+  local el = stack.add { type = "sprite", sprite = sprite }
   el.style.width = VIEW
   el.style.height = VIEW
   el.style.stretch_image_to_widget_size = true
@@ -130,11 +142,11 @@ local function add_layer(stack, sprite)
 end
 
 local function add_viewport(parent, node)
-  local wrap = parent.add{ type = "flow", direction = "horizontal" }
+  local wrap = parent.add { type = "flow", direction = "horizontal" }
   wrap.style.horizontally_stretchable = true
   wrap.style.horizontal_align = "center"
-  local deep = wrap.add{ type = "frame", style = "deep_frame_in_shallow_frame" }
-  local stack = deep.add{ type = "flow", direction = "vertical" }
+  local deep = wrap.add { type = "frame", style = "deep_frame_in_shallow_frame" }
+  local stack = deep.add { type = "flow", direction = "vertical" }
   stack.style.vertical_spacing = 0
   add_layer(stack, VP_BASE)
   local eff = node.eff_mask or node.mask or 0
@@ -144,7 +156,7 @@ local function add_viewport(parent, node)
     end
   end
   if node.mode == "manual" then
-    local overlay = stack.add{ type = "flow", direction = "vertical" }
+    local overlay = stack.add { type = "flow", direction = "vertical" }
     overlay.style.vertical_spacing = 0
     overlay.style.top_margin = -VIEW
     add_path_checks(overlay, node)
@@ -157,10 +169,10 @@ end
 
 -- Маленькая стопка ↑/↓ слева.
 local function add_reorder(parent, up_name, dn_name, can_up, can_dn)
-  local mv = parent.add{ type = "flow", direction = "vertical" }
+  local mv = parent.add { type = "flow", direction = "vertical" }
   mv.style.vertical_spacing = 0
   local function arr(nm, cap, en)
-    local b = mv.add{ type = "button", name = nm, caption = cap, style = "tool_button" }
+    local b = mv.add { type = "button", name = nm, caption = cap, style = "tool_button" }
     b.style.minimal_width = 0
     b.style.minimal_height = 0
     b.style.width = 20
@@ -176,10 +188,10 @@ end
 
 -- Светлая карточка-строка в тёмном контейнере. Возвращает внутренний flow (центрирован).
 local function row_card(parent, indent, style)
-  local box = parent.add{ type = "frame", style = style or FRAME_NORMAL }  -- фон опции/категории
+  local box = parent.add { type = "frame", style = style or FRAME_NORMAL } -- фон опции/категории
   box.style.horizontally_stretchable = true
   if indent then box.style.left_margin = 16 end
-  local row = box.add{ type = "flow", direction = "horizontal" }
+  local row = box.add { type = "flow", direction = "horizontal" }
   row.style.vertical_align = "center"
   row.style.horizontal_spacing = 4
   row.style.horizontally_stretchable = true
@@ -188,13 +200,13 @@ end
 
 local function add_category_header(parent, entry, ci, count)
   local row = row_card(parent, false)
-  add_reorder(row, GUI.CAT_UP .. entry, GUI.CAT_DN .. entry, ci > 1, ci < count)  -- визуал
-  row.add{ type = "label", style = "caption_label",
+  add_reorder(row, GUI.CAT_UP .. entry, GUI.CAT_DN .. entry, ci > 1, ci < count) -- визуал
+  row.add { type = "label", style = "caption_label",
     caption = { "", CAT_ARROW[entry] .. "  ", { "gofarovich-scl-gui.entry-" .. entry } } }
-  local sp = row.add{ type = "empty-widget" }
+  local sp = row.add { type = "empty-widget" }
   sp.style.horizontally_stretchable = true
   -- крестик — как у строк условий: прозрачная подложка, проявляется при наведении
-  local del = row.add{ type = "sprite-button", name = GUI.CAT_DEL .. entry,
+  local del = row.add { type = "sprite-button", name = GUI.CAT_DEL .. entry,
     style = "frame_action_button", sprite = "utility/close",
     hovered_sprite = "utility/close_black", clicked_sprite = "utility/close",
     tooltip = { "gofarovich-scl-gui.del-cat" } }
@@ -213,14 +225,14 @@ end
 -- флаг read-next упразднён). У легаси-условий lsrc/rsrc нет — рисуем «все три»
 -- (тождественно прежнему слитому чтению), таблица материализуется при первой
 -- правке галочки. У правого операнда-константы источники гаснут.
-local SRC_ALL = { r = true, g = true, cart = true }  -- только для отрисовки легаси
+local SRC_ALL = { r = true, g = true, cart = true } -- только для отрисовки легаси
 
 local function add_src_checks(parent, side, entry, idx, src, active, wired_r, wired_g)
-  local col = parent.add{ type = "flow", direction = "vertical" }
+  local col = parent.add { type = "flow", direction = "vertical" }
   col.style.vertical_spacing = -1
   local sfx = "-" .. entry .. "-" .. idx
   local function chk(letter, cap, state, enabled, tip)
-    local c = col.add{ type = "checkbox", name = GUI.CN .. side .. letter .. sfx,
+    local c = col.add { type = "checkbox", name = GUI.CN .. side .. letter .. sfx,
       caption = cap, state = state and true or false, tooltip = tip }
     c.style.font = "default-tiny-bold"
     c.style.right_padding = 6
@@ -232,7 +244,7 @@ local function add_src_checks(parent, side, entry, idx, src, active, wired_r, wi
 end
 
 local function add_operand_slot(row, key, entry, idx, field, value, opts, enabled, cond, srcinfo)
-  local wrap = row.add{ type = "flow", direction = "horizontal" }
+  local wrap = row.add { type = "flow", direction = "horizontal" }
   wrap.style.vertical_align = "center"
   wrap.style.horizontal_spacing = 2
   local is_left = field == "siga"
@@ -259,14 +271,14 @@ local function add_cond_row(parent, key, entry, idx, cond, count, stale, lit, sr
   local row = row_card(parent, true, lit and FRAME_LIT or FRAME_NORMAL)
   add_reorder(row, GUI.CN .. "up" .. sfx, GUI.CN .. "dn" .. sfx, idx > 1, idx < count)
 
-  local icon = row.add{ type = "sprite",
+  local icon = row.add { type = "sprite",
     sprite = "gofarovich-scl-dir-" .. entry .. "-" .. cond.exit,
     tooltip = stale and { "gofarovich-scl-gui.cond-stale" } or nil }
   icon.style.width = 44
   icon.style.height = 44
   icon.style.stretch_image_to_widget_size = true
 
-  local spacer = row.add{ type = "empty-widget" }
+  local spacer = row.add { type = "empty-widget" }
   spacer.style.horizontally_stretchable = true
 
   -- siga (левый операнд): только сигнал, с вайлдкардами each/any/everything, без константы.
@@ -274,7 +286,7 @@ local function add_cond_row(parent, key, entry, idx, cond, count, stale, lit, sr
     { use_signal = true, signal = cond.signal },
     { allow_wildcards = true, allow_constant = false }, not stale, cond, srcinfo)
 
-  local dd = row.add{ type = "drop-down", name = GUI.CN .. "cmp" .. sfx,
+  local dd = row.add { type = "drop-down", name = GUI.CN .. "cmp" .. sfx,
     items = COMPARATORS, selected_index = cmp_index(cond.comparator) }
   dd.style.width = 50
   dd.style.height = 44
@@ -287,21 +299,21 @@ local function add_cond_row(parent, key, entry, idx, cond, count, stale, lit, sr
     { allow_wildcards = false, allow_constant = true }, not stale, cond, srcinfo)
 
   -- крестик — как у дока: прозрачная подложка, проявляется при наведении
-  local del = row.add{ type = "sprite-button", name = GUI.CN .. "del" .. sfx,
+  local del = row.add { type = "sprite-button", name = GUI.CN .. "del" .. sfx,
     style = "frame_action_button", sprite = "utility/close",
     hovered_sprite = "utility/close_black", clicked_sprite = "utility/close",
     tooltip = { "gofarovich-scl-gui.del-cond" } }
   del.style.size = 20
-  del.style.left_margin = 4   -- воздух перед крестиком
+  del.style.left_margin = 4 -- воздух перед крестиком
   del.style.right_margin = 4
 
-  return row.parent  -- box-карточка (для живой смены заливки в on_tick)
+  return row.parent -- box-карточка (для живой смены заливки в on_tick)
 end
 
 -- Панель условий снизу: тёмное пространство (`inside_deep_frame`), внутри плоский
 -- список светлых карточек — категории и (с отступом) их условия.
 local function add_conditions_panel(parent, node)
-  local panel = parent.add{ type = "frame", style = "inside_shallow_frame", direction = "vertical" }
+  local panel = parent.add { type = "frame", style = "inside_shallow_frame", direction = "vertical" }
   panel.style.horizontally_stretchable = true
   panel.style.top_margin = 4
 
@@ -310,18 +322,18 @@ local function add_conditions_panel(parent, node)
   CS.add(panel, node.entity, { mode = "single" })
 
   -- список — в scroll-pane с лимитом высоты: при переполнении появляется слайдер.
-  local scroll = panel.add{ type = "scroll-pane", style = "decider_combinator_conditions_scroll_pane",
+  local scroll = panel.add { type = "scroll-pane", style = "decider_combinator_conditions_scroll_pane",
     horizontal_scroll_policy = "never", vertical_scroll_policy = "auto" }
   scroll.style.maximal_height = 300
   scroll.style.horizontally_stretchable = true
-  scroll.style.minimal_width = 0      -- vanilla-стиль не диктует ширину; её задаёт окно (COND_WIDTH)
+  scroll.style.minimal_width = 0 -- vanilla-стиль не диктует ширину; её задаёт окно (COND_WIDTH)
   scroll.style.padding = 2
-  local inner = scroll.add{ type = "flow", direction = "vertical" }
+  local inner = scroll.add { type = "flow", direction = "vertical" }
   inner.style.padding = 0
   inner.style.vertical_spacing = 2
   inner.style.horizontally_stretchable = true
 
-  local key = G.key_of_tile(node.x, node.y)  -- target для слотов-операндов gglib
+  local key = G.key_of_tile(node.x, node.y) -- target для слотов-операндов gglib
   -- подключённость проводов: гасит галочки R/G у операндов
   local srcinfo
   do
@@ -332,7 +344,7 @@ local function add_conditions_panel(parent, node)
     end
     srcinfo = { wr = conn(W.circuit_red), wg = conn(W.circuit_green) }
   end
-  local rows = {}  -- {box, entry, idx, lit, lit_tick} — для живой подсветки в on_tick
+  local rows = {} -- {box, entry, idx, lit, lit_tick} — для живой подсветки в on_tick
   local cats = R.cat_order_list(node)
   for ci, entry in ipairs(cats) do
     add_category_header(inner, entry, ci, #cats)
@@ -342,18 +354,23 @@ local function add_conditions_panel(parent, node)
       local stale = not (conn and node.conns[conn])
       local lit = (not stale) and R.cond_eval(node, cond)
       local box = add_cond_row(inner, key, entry, i, cond, #list, stale, lit, srcinfo)
-      rows[#rows + 1] = { box = box, entry = entry, idx = i,
-        lit = lit, lit_tick = lit and game.tick or nil }
+      rows[#rows + 1] = {
+        box = box,
+        entry = entry,
+        idx = i,
+        lit = lit,
+        lit_tick = lit and game.tick or nil
+      }
     end
   end
 
   -- «New condition» — в том же списке, под условиями (скроллится вместе с ними).
   -- Галочки «read next cart content» больше нет: с галочками-источниками C у
   -- операндов она потеряла смысл — payload входящей читается всегда (пер-условие).
-  local add = inner.add{ type = "button", name = GUI.NEWCOND,
+  local add = inner.add { type = "button", name = GUI.NEWCOND,
     caption = { "gofarovich-scl-gui.new-cond" } }
   add.style.horizontally_stretchable = true
-  add.style.height = 32   -- стандартная ~28 + 20
+  add.style.height = 32 -- стандартная ~28 + 20
 
   return rows
 end
@@ -369,10 +386,10 @@ GUI.close_popup = close_popup
 local function open_popup(player, node)
   close_popup(player)
   storage.gui_popup = storage.gui_popup or {}
-  local f = player.gui.screen.add{ type = "frame", name = GUI.POPUP, direction = "vertical" }
+  local f = player.gui.screen.add { type = "frame", name = GUI.POPUP, direction = "vertical" }
   add_titlebar(f, { "gofarovich-scl-gui.select-dir" }, GUI.POPUP_CLOSE)
-  local box = f.add{ type = "frame", style = "inside_shallow_frame_with_padding" }
-  local grid = box.add{ type = "table", column_count = 5 }
+  local box = f.add { type = "frame", style = "inside_shallow_frame_with_padding" }
+  local grid = box.add { type = "table", column_count = 5 }
   grid.style.horizontal_spacing = 2
   grid.style.vertical_spacing = 2
 
@@ -386,12 +403,12 @@ local function open_popup(player, node)
       local key = at[r] and at[r][c]
       if key then
         local entry, exit = key:match("^(%a)-(%a)$")
-        local btn = grid.add{ type = "sprite-button", name = GUI.DIRBTN .. entry .. "-" .. exit,
+        local btn = grid.add { type = "sprite-button", name = GUI.DIRBTN .. entry .. "-" .. exit,
           sprite = "gofarovich-scl-dir-" .. entry .. "-" .. exit, tooltip = entry .. " → " .. exit }
         btn.style.size = 40
         btn.enabled = node.conns[G.CONN[entry][exit]] ~= nil
       else
-        grid.add{ type = "empty-widget" }.style.size = 40
+        grid.add { type = "empty-widget" }.style.size = 40
       end
     end
   end
@@ -439,19 +456,19 @@ function GUI.open(player, node)
     return
   end
 
-  local frame = player.gui.screen.add{ type = "frame", name = GUI.FRAME, direction = "vertical" }
+  local frame = player.gui.screen.add { type = "frame", name = GUI.FRAME, direction = "vertical" }
   add_titlebar(frame, { "gofarovich-scl-gui.title" }, GUI.CLOSE)
 
-  local content = frame.add{
+  local content = frame.add {
     type = "frame", style = "inside_shallow_frame_with_padding", direction = "vertical" }
   content.style.horizontally_stretchable = true
   add_viewport(content, node)
-  content.add{ type = "line" }.style.margin = 4
+  content.add { type = "line" }.style.margin = 4
   local manual = node.mode == "manual"
-  content.add{ type = "checkbox", name = GUI.MANUAL,
+  content.add { type = "checkbox", name = GUI.MANUAL,
     caption = { "gofarovich-scl-gui.manual" }, state = manual }
   if manual then
-    content.add{ type = "checkbox", name = GUI.CONDITIONS,
+    content.add { type = "checkbox", name = GUI.CONDITIONS,
       caption = { "gofarovich-scl-gui.conditions" }, state = node.conditions_on == true }
   end
 
@@ -459,7 +476,7 @@ function GUI.open(player, node)
   storage.gui_live = storage.gui_live or {}
   storage.gui_live[player.index] = nil
   if manual and node.conditions_on then
-    frame.style.width = COND_WIDTH   -- фикс. ширина окна с условиями; вьюпорт центрируется
+    frame.style.width = COND_WIDTH -- фикс. ширина окна с условиями; вьюпорт центрируется
     local rows = add_conditions_panel(frame, node)
     storage.gui_live[player.index] = { key = G.key_of_tile(node.x, node.y), rows = rows }
   end
@@ -637,11 +654,11 @@ function GUI.register_events()
   -- Операнды-сигналы выбираются пикером из gglib (не choose-elem-button), поэтому
   -- on_gui_elem_changed здесь не нужен. Пикер событий не регистрирует — зовём его хэндлеры
   -- из наших через мультиплексор Events.on (сосуществуют с обработчиками GUI).
-  Events.on(defines.events.on_gui_click,         function(e) SB.on_click(e) end)
-  Events.on(defines.events.on_gui_click,         function(e) SP.on_click(e) end)
-  Events.on(defines.events.on_gui_text_changed,  function(e) SP.on_text(e) end)
+  Events.on(defines.events.on_gui_click, function(e) SB.on_click(e) end)
+  Events.on(defines.events.on_gui_click, function(e) SP.on_click(e) end)
+  Events.on(defines.events.on_gui_text_changed, function(e) SP.on_text(e) end)
   Events.on(defines.events.on_gui_value_changed, function(e) SP.on_value(e) end)
-  Events.on(defines.events.on_gui_closed,        function(e) SP.on_closed(e) end)
+  Events.on(defines.events.on_gui_closed, function(e) SP.on_closed(e) end)
   -- result: { signal=SignalID } | { constant=N } | { quality=имя } (квалити-пикер
   -- дока) | nil(очистить). changed=false → cancel.
   -- Колбэк ЕДИНЫЙ на мод: слоты окна дока кодируют target.dock — диспатчим туда.
@@ -656,22 +673,22 @@ function GUI.register_events()
       local cond = R.cond_get(node, target.entry, target.idx)
       if cond then
         if target.field == "siga" then
-          cond.signal = result and result.signal or nil  -- левый: только сигнал (или catch-all)
-        else  -- sigb — правый операнд: сигнал ИЛИ константа
+          cond.signal = result and result.signal or nil -- левый: только сигнал (или catch-all)
+        else                                            -- sigb — правый операнд: сигнал ИЛИ константа
           if result and result.constant ~= nil then
             cond.use_signal = false
             cond.constant = math.floor(result.constant)
           elseif result and result.signal then
             cond.use_signal = true
             cond.second_signal = result.signal
-          else  -- очистить → константа 0
+          else -- очистить → константа 0
             cond.use_signal = false
             cond.constant = 0
           end
         end
       end
     end
-    GUI.open(player, node)  -- переоткрыть GUI рельса (и после pick/none, и после cancel)
+    GUI.open(player, node) -- переоткрыть GUI рельса (и после pick/none, и после cancel)
   end)
 
   -- Оператор условия (drop-down).
