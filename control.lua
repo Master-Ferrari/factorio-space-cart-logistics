@@ -14,6 +14,7 @@ local util = require("util")
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local C = require("scripts.convoys")
+local Overlay = require("scripts.cart_overlay")
 local Docks = require("scripts.docks")
 local GUI = require("scripts.gui")
 local GUIDock = require("scripts.gui_dock")
@@ -195,6 +196,7 @@ local function on_cloned(event)
       if dinv then
         local n = math.min(#dinv, #scart.inv)
         for i = 1, n do dinv[i].set_stack(scart.inv[i]) end
+        Overlay.refresh(storage.carts[dst.unit_number])
       end
     end
   end
@@ -344,6 +346,9 @@ local function rebuild_world()
   C.read_next_clear_all()
   -- доки — после слоя кареток: пойманная каретка релинкуется по unit_number.
   Docks.rebuild()
+  -- alt-оверлеи груза: дорисовать старым сейвам (введены после M7) и согласовать
+  -- всё после миграций выше. Идемпотентно.
+  Overlay.refresh_all()
   -- окна дока закрываем: апдейт мода мог сменить схему имён элементов —
   -- клики по стейл-окну молча терялись бы. Игрок просто откроет заново.
   for _, player in pairs(game.players) do GUIDock.close(player) end
@@ -429,6 +434,15 @@ script.on_event(defines.events.on_player_setup_blueprint, on_setup_blueprint)
 script.on_event(defines.events.on_tick, function()
   C.on_tick()
   Docks.on_tick()       -- после C.on_tick: курсоры кареток уже сдвинуты этим тиком
+  -- открытые окна груза кареток: игрок перекладывает предметы руками, событий у
+  -- script-инвентаря нет — синкаем оверлей по подписи состава (записей ≤ числа
+  -- игроков; перерисовка только при фактической смене набора предметов)
+  if storage.cart_open then
+    for _, un in pairs(storage.cart_open) do
+      local cart = storage.carts[un]
+      if cart then Overlay.sync(cart, cart.entity, cart.inv) end
+    end
+  end
   GUI.on_tick()
   GUIDock.on_tick()     -- после Docks.on_tick: подсветка по свежему d.watch
   DebugRails.on_tick()  -- после C.on_tick: перекраска по свежей occ этого тика
@@ -447,6 +461,10 @@ end)
 local function close_cart_gui(player)
   local open = storage.cart_open
   if not (open and open[player.index]) then return end  -- закрылось чужое окно
+  -- хвост тикового synca открытых окон (см. on_tick): изменение и закрытие в один
+  -- тик могли проскочить мимо него — добираем; sync без смены состава бесплатен
+  local cart = storage.carts[open[player.index]]
+  if cart then Overlay.sync(cart, cart.entity, cart.inv) end
   open[player.index] = nil
   player.play_sound({ path = "entity-close/iron-chest" })
 end

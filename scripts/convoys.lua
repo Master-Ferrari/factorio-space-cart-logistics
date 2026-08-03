@@ -16,6 +16,7 @@
 local G = require("scripts.geometry")
 local R = require("scripts.rails")
 local Circuit = require("scripts.circuit")
+local Overlay = require("scripts.cart_overlay")
 
 local C = {}
 
@@ -629,6 +630,7 @@ function C.fit_cart_inventory(cart)
     end
   end
   inv.resize(want)
+  Overlay.refresh(cart)  -- состав груза мог измениться (спилл усадки)
 end
 
 -- Миграция инвентарей всех кареток под качество (апдейт мода: старый фикс-4 → 1–5).
@@ -692,6 +694,7 @@ function C.cart_unregister(entity)
   local un = entity.unit_number
   if not un then return end
   local cart = storage.carts[un]
+  Overlay.clear(cart)  -- обычно сущность гибнет следом (объекты умерли бы сами) — явная чистка дешевле догадок
   if cart and cart.inv and cart.inv.valid then cart.inv.destroy() end
   if cart and cart.cells and cart.tail and cart.head then
     local occ = storage.occ
@@ -735,6 +738,7 @@ function C.rebuild_carts()
   local invs = {}
   for un, cart in pairs(storage.carts) do
     if cart.inv and cart.inv.valid then invs[un] = cart.inv end
+    Overlay.clear(cart)  -- ссылки на рендер-объекты живут в записи каретки — сброс storage.carts их осиротил бы
   end
   storage.convoys = {}
   storage.carts = {}
@@ -747,7 +751,12 @@ function C.rebuild_carts()
   end
   for un, inv in pairs(invs) do
     local cart = storage.carts[un]
-    if cart then cart.inv = inv else inv.destroy() end  -- сущности больше нет — груз в утиль
+    if cart then
+      cart.inv = inv
+      Overlay.refresh(cart)
+    else
+      inv.destroy()  -- сущности больше нет — груз в утиль
+    end
   end
 end
 

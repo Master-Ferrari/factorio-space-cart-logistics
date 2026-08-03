@@ -455,13 +455,31 @@ local function cargo_inv(d)
 end
 
 local function slot_face(btn, stack)
-  local sprite, number = nil, nil
+  local sprite, number, qname = nil, nil, nil
   if stack and stack.valid_for_read then
     sprite = "item/" .. stack.name
     number = stack.count
+    local q = stack.quality
+    if q and q.name ~= "normal" then qname = q.name end
   end
   if btn.sprite ~= sprite then btn.sprite = sprite end
   if btn.number ~= number then btn.number = number end
+  -- Значок качества — child-спрайт в левом нижнем углу (sprite-button сам бейдж
+  -- НЕ рисует, в отличие от нативных инвентарей). Вызов тиковый (живые лица) —
+  -- мутации только при фактической смене, без пересозданий.
+  local badge = btn.q
+  local want = qname and ("quality/" .. qname) or nil
+  if not want then
+    if badge then badge.destroy() end
+  elseif badge then
+    if badge.sprite ~= want then badge.sprite = want end
+  else
+    badge = btn.add{ type = "sprite", name = "q", sprite = want,
+      ignored_by_interaction = true }  -- клики сквозь значок — в кнопку
+    badge.style.size = 14
+    badge.style.stretch_image_to_widget_size = true
+    badge.style.top_margin = 19  -- прижать вниз внутри 40px-слота (число — справа)
+  end
 end
 
 -- ── окно инвентаря ИГРОКА (галочка «инвентарь» в окне дока) ─────────
@@ -551,6 +569,27 @@ local function apply_release_btn(btn, st, d)
   if btn.enabled ~= en then btn.enabled = en end
 end
 
+-- Режим секции инвентаря: слоты видны только в loaded; в остальном — плашка
+-- по центру подложки (нет каретки / рука несёт её в док / из дока). Смена
+-- режима пересобирает окно (GUIDock.on_tick) — надпись «живая» без спец-кода.
+local function inv_mode(d)
+  if not d.held then return "empty" end
+  if d.state == "loaded" then return "open" end
+  return d.state == "take" and "grabbing" or "releasing"
+end
+
+-- Плашка-состояние вместо слотов: центр подложки, приглушённо (как ванильные
+-- пустые состояния), ровно место 5 слотов — геометрия окна не прыгает.
+local function add_inv_label(deep, key)
+  local lbl = deep.add{ type = "label",
+    caption = { "gofarovich-scl-gui." .. key } }
+  lbl.style.width = SLOT_PX * INV_SLOTS_MAX
+  lbl.style.height = SLOT_PX
+  lbl.style.horizontal_align = "center"
+  lbl.style.vertical_align = "center"
+  lbl.style.font_color = { 0.55, 0.55, 0.55 }
+end
+
 local function add_inventory(body, d, st)
   local wrap = body.add{ type = "flow", direction = "horizontal" }
   wrap.style.horizontally_stretchable = true
@@ -591,18 +630,20 @@ local function add_inventory(body, d, st)
     caption = { "gofarovich-scl-gui.dock-read-contents" },
     tooltip = { "gofarovich-scl-gui.dock-read-contents-tt" } }
 
+  st.invmode = inv_mode(d)
   local inv = cargo_inv(d)
-  if not (d.held and inv) then return end  -- каретки нет — пустая панель
+  if st.invmode ~= "open" or not inv then
+    -- empty/grabbing/releasing → плашка dock-inv-<mode> (локаль)
+    add_inv_label(deep, "dock-inv-" .. st.invmode)
+    return
+  end
   local cart = storage.carts[d.held]
   local slots = (cart and cart.inv and cart.inv.valid) and #cart.inv or #inv
-  local unlocked = d.state == "loaded"
   st.slots = {}
   for i = 1, slots do
     local btn = deep.add{ type = "sprite-button", name = GUIDock.SLOT .. i,
       style = "inventory_slot" }
     slot_face(btn, inv[i])
-    btn.enabled = unlocked
-    btn.tooltip = unlocked and nil or { "gofarovich-scl-gui.dock-inv-locked" }
     st.slots[i] = btn
   end
 end
@@ -653,8 +694,9 @@ function GUIDock.open(player, d)
   end
 
   -- инвентарь дока (сундук-компаньон) — над редакторами; st несёт ссылки на
-  -- слоты и признак «была ли каретка» (смена → пересборка окна в on_tick)
-  local st = { key = key, held = d.held or false, pi = player.index }
+  -- слоты и режим секции st.invmode (ставит add_inventory; смена режима →
+  -- пересборка окна в on_tick)
+  local st = { key = key, pi = player.index }
   add_inventory(body, d, st)
   body.add{ type = "line" }.style.margin = 4
 
@@ -725,9 +767,10 @@ function GUIDock.on_tick()
     if not (d and d.entity and d.entity.valid) then
       local player = game.get_player(pi)
       if player then GUIDock.close(player) end
-    elseif (d.held or false) ~= st.held then
-      -- каретку поймали/отпустили — структура окна другая (секция инвентаря):
-      -- пересобрать. Замена значения по существующему ключу live — легальна.
+    elseif inv_mode(d) ~= st.invmode then
+      -- сменился режим секции инвентаря (поймали/отпустили/границы анимаций) —
+      -- структура окна другая: пересобрать. Замена значения по существующему
+      -- ключу live — легальна.
       local player = game.get_player(pi)
       if player then GUIDock.open(player, d) end
     else
@@ -752,19 +795,12 @@ function GUIDock.on_tick()
       if st.release and st.release.valid then
         apply_release_btn(st.release, st, d)
       end
-      -- живые лица и доступность слотов инвентаря (манипуляторы кладут/берут
-      -- без событий GUI; лок/разлок — по состоянию стейт-машины)
+      -- живые лица слотов инвентаря (манипуляторы кладут/берут без событий
+      -- GUI); слоты есть только в loaded — вне его вместо них плашка (inv_mode)
       if st.slots then
         local inv = cargo_inv(d)
-        local unlocked = d.state == "loaded"
         for i, btn in ipairs(st.slots) do
-          if btn.valid then
-            slot_face(btn, inv and inv[i])
-            if btn.enabled ~= unlocked then
-              btn.enabled = unlocked
-              btn.tooltip = unlocked and nil or { "gofarovich-scl-gui.dock-inv-locked" }
-            end
-          end
+          if btn.valid then slot_face(btn, inv and inv[i]) end
         end
       end
       local ctx = Docks.eval_ctx()

@@ -74,6 +74,7 @@ local G = require("scripts.geometry")
 local C = require("scripts.convoys")
 local R = require("scripts.rails")
 local Circuit = require("scripts.circuit")
+local Overlay = require("scripts.cart_overlay")
 
 local Docks = {}
 
@@ -444,6 +445,8 @@ function Docks.chest_load(d)
   local cart = d.held and storage.carts[d.held]
   transfer_slots(cart and cart.inv, Docks.chest_inv(d))
   Docks.chest_lock(d, false)
+  Overlay.refresh(cart)  -- каретка на доке пуста; пока груз в сундуке, alt-иконки его
+  Overlay.draw(d, d.chest, Docks.chest_inv(d))  -- оверлей дока — по сундуку
 end
 
 -- Выход из базы хранения (loaded → lower): груз обратно в каретку (повезёт его
@@ -452,6 +455,8 @@ function Docks.chest_unload(d)
   local cart = d.held and storage.carts[d.held]
   transfer_slots(Docks.chest_inv(d), cart and cart.inv)
   Docks.chest_lock(d, true)
+  Overlay.refresh(cart)
+  Overlay.draw(d, d.chest, Docks.chest_inv(d))  -- сундук пуст → оверлей дока гаснет
 end
 
 -- Слить груз из сундука и снести его. target_inv: cart.inv (by_slot=true, 1:1)
@@ -467,6 +472,8 @@ function Docks.chest_drain(d, target_inv, by_slot)
         local s = inv[i]
         if s.valid_for_read then target_inv[i].set_stack(s) end
       end
+      -- by_slot=true ⇒ приёмник — cart.inv пойманной каретки: оверлей по новому грузу
+      Overlay.refresh(d.held and storage.carts[d.held])
     else
       for i = 1, #inv do
         local s = inv[i]
@@ -476,6 +483,7 @@ function Docks.chest_drain(d, target_inv, by_slot)
   end
   if d.chest and d.chest.valid then d.chest.destroy() end
   d.chest = nil
+  Overlay.clear(d)  -- рендер-объекты умерли с сундуком — чистим ссылки/подпись
 end
 
 -- Майнинг пойманной каретки (control.lua, ДО cart_unregister): груз — добытчику.
@@ -1115,6 +1123,11 @@ function Docks.on_tick()
     if d then
       step(d, claim[d], ctx, free[d.tkey], claim, handed)
       Docks.update_output(d)
+      -- оверлей дока: сундук в loaded кормят манипуляторы (событий нет) —
+      -- периодический sync с гейтом по подписи состава (см. cart_overlay.lua)
+      if d.state == "loaded" and game.tick % Overlay.SYNC == 0 then
+        Overlay.sync(d, d.chest, Docks.chest_inv(d))
+      end
       apply_visual(d)
     end
   end
@@ -1160,6 +1173,7 @@ end
 function Docks.rebuild()
   local saved = {}
   for key, d in pairs(storage.docks or {}) do
+    Overlay.clear(d)  -- ссылки живут в записи дока — сброс storage.docks их осиротил бы
     saved[key] = { held = d.held, heading = d.heading, state = d.state,
                    arm = d.arm, last_released = d.last_released,
                    release_i = d.release_i,

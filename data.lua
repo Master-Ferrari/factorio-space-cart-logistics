@@ -200,7 +200,10 @@ local dock_chest = {
   icon = GFX .. "dock-icon.png",
   icon_size = 64,
   hidden = true,
-  flags = { "placeable-neutral", "not-on-map", "not-blueprintable", "not-deconstructable" },
+  -- hide-alt-info: дефолтный оверлей контейнера гасим — иконки груза рисует
+  -- наш единый оверлей (scripts/cart_overlay.lua, те же раскладки, что у кареток)
+  flags = { "placeable-neutral", "not-on-map", "not-blueprintable",
+            "not-deconstructable", "hide-alt-info" },
   max_health = 100,
   collision_mask = { layers = {} },
   collision_box = { { -0.1, -0.1 }, { 0.1, 0.1 } },
