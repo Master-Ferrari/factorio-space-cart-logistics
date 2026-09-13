@@ -1,0 +1,3983 @@
+{
+  "$comment": "Сгенерировано tools/gen_sprite_manifest.py. Контракт: docs/art.md, scripts/railmask.lua.",
+  "target": "graphics/rail.png",
+  "sheet": {
+    "layout": "row-major, 8 cells per row",
+    "grid": [
+      8,
+      8
+    ],
+    "cell_px": 64,
+    "sheet_px": [
+      512,
+      512
+    ],
+    "sprite_scale_in_mod": 0.5,
+    "tile_px_at_scale_1": 32,
+    "cell_index_from_mask": {
+      "col": "mask & 7",
+      "row": "mask >> 3"
+    },
+    "alt_high_res": {
+      "cell_px": 128,
+      "sheet_px": [
+        1024,
+        1024
+      ],
+      "sprite_scale_in_mod": 0.25
+    },
+    "art_bleeds_to_cell_edges": true,
+    "render_layer": "lower-object (integration_patch)"
+  },
+  "layers": [
+    {
+      "name": "diffuse",
+      "file": "graphics/rail.png",
+      "cells": 64,
+      "required": true
+    },
+    {
+      "name": "shadow",
+      "file": "graphics/rail-shadow.png",
+      "cells": 64,
+      "required": false,
+      "note": "тот же контракт ячеек; отдельный лист на shadow-слое"
+    }
+  ],
+  "bit_contract": {
+    "N-S": 0,
+    "E-W": 1,
+    "N-E": 2,
+    "N-W": 3,
+    "S-E": 4,
+    "S-W": 5
+  },
+  "paths": [
+    {
+      "conn": "N-S",
+      "bit": 0,
+      "sides": [
+        "N",
+        "S"
+      ],
+      "endpoints": {
+        "N": [
+          0.5,
+          0.0
+        ],
+        "S": [
+          0.5,
+          1.0
+        ]
+      },
+      "shape": "line"
+    },
+    {
+      "conn": "E-W",
+      "bit": 1,
+      "sides": [
+        "E",
+        "W"
+      ],
+      "endpoints": {
+        "E": [
+          1.0,
+          0.5
+        ],
+        "W": [
+          0.0,
+          0.5
+        ]
+      },
+      "shape": "line"
+    },
+    {
+      "conn": "N-E",
+      "bit": 2,
+      "sides": [
+        "N",
+        "E"
+      ],
+      "endpoints": {
+        "N": [
+          0.5,
+          0.0
+        ],
+        "E": [
+          1.0,
+          0.5
+        ]
+      },
+      "shape": "arc",
+      "arc_center": [
+        1.0,
+        0.0
+      ],
+      "arc_radius": 0.5
+    },
+    {
+      "conn": "N-W",
+      "bit": 3,
+      "sides": [
+        "N",
+        "W"
+      ],
+      "endpoints": {
+        "N": [
+          0.5,
+          0.0
+        ],
+        "W": [
+          0.0,
+          0.5
+        ]
+      },
+      "shape": "arc",
+      "arc_center": [
+        0.0,
+        0.0
+      ],
+      "arc_radius": 0.5
+    },
+    {
+      "conn": "S-E",
+      "bit": 4,
+      "sides": [
+        "S",
+        "E"
+      ],
+      "endpoints": {
+        "S": [
+          0.5,
+          1.0
+        ],
+        "E": [
+          1.0,
+          0.5
+        ]
+      },
+      "shape": "arc",
+      "arc_center": [
+        1.0,
+        1.0
+      ],
+      "arc_radius": 0.5
+    },
+    {
+      "conn": "S-W",
+      "bit": 5,
+      "sides": [
+        "S",
+        "W"
+      ],
+      "endpoints": {
+        "S": [
+          0.5,
+          1.0
+        ],
+        "W": [
+          0.0,
+          0.5
+        ]
+      },
+      "shape": "arc",
+      "arc_center": [
+        0.0,
+        1.0
+      ],
+      "arc_radius": 0.5
+    }
+  ],
+  "geometry_note": "координаты нормированы к тайлу [0..1], ось y вниз, N = y0; в пикселях ячейки — умножить на cell_px",
+  "orientation_note": "движок ячейки НЕ вертит: каждое направление Sprite4Way ссылается на ячейку своей маски. При рендере вертеть ГЕОМЕТРИЮ в сцене, свет/камеру оставлять на месте.",
+  "counts": {
+    "cells_total": 64,
+    "cells_to_render": 63,
+    "rotation_classes": 22,
+    "representative_masks": [
+      0,
+      1,
+      3,
+      4,
+      5,
+      6,
+      7,
+      12,
+      13,
+      14,
+      15,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      60,
+      61,
+      63
+    ]
+  },
+  "cells": [
+    {
+      "mask": 0,
+      "bits": "000000",
+      "render_name": "tile_00_000000",
+      "active_paths": [],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": false,
+        "N-W": false,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 0,
+      "empty": true,
+      "cell": {
+        "col": 0,
+        "row": 0,
+        "x": 0,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [],
+        "E": [],
+        "S": [],
+        "W": []
+      },
+      "edge_degree": {
+        "N": 0,
+        "E": 0,
+        "S": 0,
+        "W": 0
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-0",
+        "rep_mask": 0,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 1,
+      "bits": "100000",
+      "render_name": "tile_01_100000",
+      "active_paths": [
+        "N-S"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": false,
+        "N-W": false,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 1,
+      "empty": false,
+      "cell": {
+        "col": 1,
+        "row": 0,
+        "x": 64,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S"
+        ],
+        "E": [],
+        "S": [
+          "N-S"
+        ],
+        "W": []
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 0,
+        "S": 1,
+        "W": 0
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-1",
+        "rep_mask": 1,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 2,
+      "bits": "010000",
+      "render_name": "tile_02_010000",
+      "active_paths": [
+        "E-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": false,
+        "N-W": false,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 1,
+      "empty": false,
+      "cell": {
+        "col": 2,
+        "row": 0,
+        "x": 128,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [],
+        "E": [
+          "E-W"
+        ],
+        "S": [],
+        "W": [
+          "E-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 0,
+        "E": 1,
+        "S": 0,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-1",
+        "rep_mask": 1,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 3,
+      "bits": "110000",
+      "render_name": "tile_03_110000",
+      "active_paths": [
+        "N-S",
+        "E-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": false,
+        "N-W": false,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 3,
+        "row": 0,
+        "x": 192,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S"
+        ],
+        "E": [
+          "E-W"
+        ],
+        "S": [
+          "N-S"
+        ],
+        "W": [
+          "E-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-3",
+        "rep_mask": 3,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 4,
+      "bits": "001000",
+      "render_name": "tile_04_001000",
+      "active_paths": [
+        "N-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": true,
+        "N-W": false,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 1,
+      "empty": false,
+      "cell": {
+        "col": 4,
+        "row": 0,
+        "x": 256,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E"
+        ],
+        "E": [
+          "N-E"
+        ],
+        "S": [],
+        "W": []
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 0,
+        "W": 0
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-4",
+        "rep_mask": 4,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 5,
+      "bits": "101000",
+      "render_name": "tile_05_101000",
+      "active_paths": [
+        "N-S",
+        "N-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": true,
+        "N-W": false,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 5,
+        "row": 0,
+        "x": 320,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E"
+        ],
+        "E": [
+          "N-E"
+        ],
+        "S": [
+          "N-S"
+        ],
+        "W": []
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 1,
+        "S": 1,
+        "W": 0
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-5",
+        "rep_mask": 5,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 6,
+      "bits": "011000",
+      "render_name": "tile_06_011000",
+      "active_paths": [
+        "E-W",
+        "N-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": true,
+        "N-W": false,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 6,
+        "row": 0,
+        "x": 384,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E"
+        ],
+        "E": [
+          "E-W",
+          "N-E"
+        ],
+        "S": [],
+        "W": [
+          "E-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 2,
+        "S": 0,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-6",
+        "rep_mask": 6,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 7,
+      "bits": "111000",
+      "render_name": "tile_07_111000",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": true,
+        "N-W": false,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 7,
+        "row": 0,
+        "x": 448,
+        "y": 0,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E"
+        ],
+        "E": [
+          "E-W",
+          "N-E"
+        ],
+        "S": [
+          "N-S"
+        ],
+        "W": [
+          "E-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-7",
+        "rep_mask": 7,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 8,
+      "bits": "000100",
+      "render_name": "tile_08_000100",
+      "active_paths": [
+        "N-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": false,
+        "N-W": true,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 1,
+      "empty": false,
+      "cell": {
+        "col": 0,
+        "row": 1,
+        "x": 0,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-W"
+        ],
+        "E": [],
+        "S": [],
+        "W": [
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 0,
+        "S": 0,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-4",
+        "rep_mask": 4,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 9,
+      "bits": "100100",
+      "render_name": "tile_09_100100",
+      "active_paths": [
+        "N-S",
+        "N-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": false,
+        "N-W": true,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 1,
+        "row": 1,
+        "x": 64,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-W"
+        ],
+        "E": [],
+        "S": [
+          "N-S"
+        ],
+        "W": [
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 0,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-6",
+        "rep_mask": 6,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 10,
+      "bits": "010100",
+      "render_name": "tile_10_010100",
+      "active_paths": [
+        "E-W",
+        "N-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": false,
+        "N-W": true,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 2,
+        "row": 1,
+        "x": 128,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-W"
+        ],
+        "E": [
+          "E-W"
+        ],
+        "S": [],
+        "W": [
+          "E-W",
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 0,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-5",
+        "rep_mask": 5,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 11,
+      "bits": "110100",
+      "render_name": "tile_11_110100",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": false,
+        "N-W": true,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 3,
+        "row": 1,
+        "x": 192,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-W"
+        ],
+        "E": [
+          "E-W"
+        ],
+        "S": [
+          "N-S"
+        ],
+        "W": [
+          "E-W",
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 1,
+        "S": 1,
+        "W": 2
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-7",
+        "rep_mask": 7,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 12,
+      "bits": "001100",
+      "render_name": "tile_12_001100",
+      "active_paths": [
+        "N-E",
+        "N-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": true,
+        "N-W": true,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 4,
+        "row": 1,
+        "x": 256,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "N-E"
+        ],
+        "S": [],
+        "W": [
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 1,
+        "S": 0,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-12",
+        "rep_mask": 12,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 13,
+      "bits": "101100",
+      "render_name": "tile_13_101100",
+      "active_paths": [
+        "N-S",
+        "N-E",
+        "N-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": true,
+        "N-W": true,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 5,
+        "row": 1,
+        "x": 320,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "N-E"
+        ],
+        "S": [
+          "N-S"
+        ],
+        "W": [
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 3,
+        "E": 1,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-13",
+        "rep_mask": 13,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 14,
+      "bits": "011100",
+      "render_name": "tile_14_011100",
+      "active_paths": [
+        "E-W",
+        "N-E",
+        "N-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": true,
+        "N-W": true,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 6,
+        "row": 1,
+        "x": 384,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "N-E"
+        ],
+        "S": [],
+        "W": [
+          "E-W",
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 0,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-14",
+        "rep_mask": 14,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 15,
+      "bits": "111100",
+      "render_name": "tile_15_111100",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-E",
+        "N-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": true,
+        "N-W": true,
+        "S-E": false,
+        "S-W": false
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 7,
+        "row": 1,
+        "x": 448,
+        "y": 64,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "N-E"
+        ],
+        "S": [
+          "N-S"
+        ],
+        "W": [
+          "E-W",
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 3,
+        "E": 2,
+        "S": 1,
+        "W": 2
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-15",
+        "rep_mask": 15,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 16,
+      "bits": "000010",
+      "render_name": "tile_16_000010",
+      "active_paths": [
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": false,
+        "N-W": false,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 1,
+      "empty": false,
+      "cell": {
+        "col": 0,
+        "row": 2,
+        "x": 0,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [],
+        "E": [
+          "S-E"
+        ],
+        "S": [
+          "S-E"
+        ],
+        "W": []
+      },
+      "edge_degree": {
+        "N": 0,
+        "E": 1,
+        "S": 1,
+        "W": 0
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-4",
+        "rep_mask": 4,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 17,
+      "bits": "100010",
+      "render_name": "tile_17_100010",
+      "active_paths": [
+        "N-S",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": false,
+        "N-W": false,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 1,
+        "row": 2,
+        "x": 64,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S"
+        ],
+        "E": [
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E"
+        ],
+        "W": []
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 2,
+        "W": 0
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-6",
+        "rep_mask": 6,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 18,
+      "bits": "010010",
+      "render_name": "tile_18_010010",
+      "active_paths": [
+        "E-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": false,
+        "N-W": false,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 2,
+        "row": 2,
+        "x": 128,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [],
+        "E": [
+          "E-W",
+          "S-E"
+        ],
+        "S": [
+          "S-E"
+        ],
+        "W": [
+          "E-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 0,
+        "E": 2,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-5",
+        "rep_mask": 5,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 19,
+      "bits": "110010",
+      "render_name": "tile_19_110010",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": false,
+        "N-W": false,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 3,
+        "row": 2,
+        "x": 192,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S"
+        ],
+        "E": [
+          "E-W",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E"
+        ],
+        "W": [
+          "E-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 2,
+        "S": 2,
+        "W": 1
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-7",
+        "rep_mask": 7,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 20,
+      "bits": "001010",
+      "render_name": "tile_20_001010",
+      "active_paths": [
+        "N-E",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": true,
+        "N-W": false,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 4,
+        "row": 2,
+        "x": 256,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E"
+        ],
+        "E": [
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "S-E"
+        ],
+        "W": []
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 2,
+        "S": 1,
+        "W": 0
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-12",
+        "rep_mask": 12,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 21,
+      "bits": "101010",
+      "render_name": "tile_21_101010",
+      "active_paths": [
+        "N-S",
+        "N-E",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": true,
+        "N-W": false,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 5,
+        "row": 2,
+        "x": 320,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E"
+        ],
+        "E": [
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E"
+        ],
+        "W": []
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 2,
+        "W": 0
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-14",
+        "rep_mask": 14,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 22,
+      "bits": "011010",
+      "render_name": "tile_22_011010",
+      "active_paths": [
+        "E-W",
+        "N-E",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": true,
+        "N-W": false,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 6,
+        "row": 2,
+        "x": 384,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E"
+        ],
+        "E": [
+          "E-W",
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "S-E"
+        ],
+        "W": [
+          "E-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 3,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-13",
+        "rep_mask": 13,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 23,
+      "bits": "111010",
+      "render_name": "tile_23_111010",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-E",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": true,
+        "N-W": false,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 7,
+        "row": 2,
+        "x": 448,
+        "y": 128,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E"
+        ],
+        "E": [
+          "E-W",
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E"
+        ],
+        "W": [
+          "E-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 3,
+        "S": 2,
+        "W": 1
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-15",
+        "rep_mask": 15,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 24,
+      "bits": "000110",
+      "render_name": "tile_24_000110",
+      "active_paths": [
+        "N-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": false,
+        "N-W": true,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 0,
+        "row": 3,
+        "x": 0,
+        "y": 192,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-W"
+        ],
+        "E": [
+          "S-E"
+        ],
+        "S": [
+          "S-E"
+        ],
+        "W": [
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-24",
+        "rep_mask": 24,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 25,
+      "bits": "100110",
+      "render_name": "tile_25_100110",
+      "active_paths": [
+        "N-S",
+        "N-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": false,
+        "N-W": true,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 1,
+        "row": 3,
+        "x": 64,
+        "y": 192,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-W"
+        ],
+        "E": [
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E"
+        ],
+        "W": [
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 1,
+        "S": 2,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-25",
+        "rep_mask": 25,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 26,
+      "bits": "010110",
+      "render_name": "tile_26_010110",
+      "active_paths": [
+        "E-W",
+        "N-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": false,
+        "N-W": true,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 2,
+        "row": 3,
+        "x": 128,
+        "y": 192,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "S-E"
+        ],
+        "S": [
+          "S-E"
+        ],
+        "W": [
+          "E-W",
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 2,
+        "S": 1,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-26",
+        "rep_mask": 26,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 27,
+      "bits": "110110",
+      "render_name": "tile_27_110110",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": false,
+        "N-W": true,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 3,
+        "row": 3,
+        "x": 192,
+        "y": 192,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E"
+        ],
+        "W": [
+          "E-W",
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-27",
+        "rep_mask": 27,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 28,
+      "bits": "001110",
+      "render_name": "tile_28_001110",
+      "active_paths": [
+        "N-E",
+        "N-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": true,
+        "N-W": true,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 4,
+        "row": 3,
+        "x": 256,
+        "y": 192,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "S-E"
+        ],
+        "W": [
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-28",
+        "rep_mask": 28,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 29,
+      "bits": "101110",
+      "render_name": "tile_29_101110",
+      "active_paths": [
+        "N-S",
+        "N-E",
+        "N-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": true,
+        "N-W": true,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 5,
+        "row": 3,
+        "x": 320,
+        "y": 192,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E"
+        ],
+        "W": [
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 3,
+        "E": 2,
+        "S": 2,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-29",
+        "rep_mask": 29,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 30,
+      "bits": "011110",
+      "render_name": "tile_30_011110",
+      "active_paths": [
+        "E-W",
+        "N-E",
+        "N-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": true,
+        "N-W": true,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 6,
+        "row": 3,
+        "x": 384,
+        "y": 192,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "S-E"
+        ],
+        "W": [
+          "E-W",
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 3,
+        "S": 1,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-30",
+        "rep_mask": 30,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 31,
+      "bits": "111110",
+      "render_name": "tile_31_111110",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-E",
+        "N-W",
+        "S-E"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": true,
+        "N-W": true,
+        "S-E": true,
+        "S-W": false
+      },
+      "path_count": 5,
+      "empty": false,
+      "cell": {
+        "col": 7,
+        "row": 3,
+        "x": 448,
+        "y": 192,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E"
+        ],
+        "W": [
+          "E-W",
+          "N-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 3,
+        "E": 3,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-31",
+        "rep_mask": 31,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 32,
+      "bits": "000001",
+      "render_name": "tile_32_000001",
+      "active_paths": [
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": false,
+        "N-W": false,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 1,
+      "empty": false,
+      "cell": {
+        "col": 0,
+        "row": 4,
+        "x": 0,
+        "y": 256,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [],
+        "E": [],
+        "S": [
+          "S-W"
+        ],
+        "W": [
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 0,
+        "E": 0,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-4",
+        "rep_mask": 4,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 33,
+      "bits": "100001",
+      "render_name": "tile_33_100001",
+      "active_paths": [
+        "N-S",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": false,
+        "N-W": false,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 1,
+        "row": 4,
+        "x": 64,
+        "y": 256,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S"
+        ],
+        "E": [],
+        "S": [
+          "N-S",
+          "S-W"
+        ],
+        "W": [
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 0,
+        "S": 2,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-5",
+        "rep_mask": 5,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 34,
+      "bits": "010001",
+      "render_name": "tile_34_010001",
+      "active_paths": [
+        "E-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": false,
+        "N-W": false,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 2,
+        "row": 4,
+        "x": 128,
+        "y": 256,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [],
+        "E": [
+          "E-W"
+        ],
+        "S": [
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 0,
+        "E": 1,
+        "S": 1,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-6",
+        "rep_mask": 6,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 35,
+      "bits": "110001",
+      "render_name": "tile_35_110001",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": false,
+        "N-W": false,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 3,
+        "row": 4,
+        "x": 192,
+        "y": 256,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S"
+        ],
+        "E": [
+          "E-W"
+        ],
+        "S": [
+          "N-S",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-7",
+        "rep_mask": 7,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 36,
+      "bits": "001001",
+      "render_name": "tile_36_001001",
+      "active_paths": [
+        "N-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": true,
+        "N-W": false,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 4,
+        "row": 4,
+        "x": 256,
+        "y": 256,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E"
+        ],
+        "E": [
+          "N-E"
+        ],
+        "S": [
+          "S-W"
+        ],
+        "W": [
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 1,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-24",
+        "rep_mask": 24,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 37,
+      "bits": "101001",
+      "render_name": "tile_37_101001",
+      "active_paths": [
+        "N-S",
+        "N-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": true,
+        "N-W": false,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 5,
+        "row": 4,
+        "x": 320,
+        "y": 256,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E"
+        ],
+        "E": [
+          "N-E"
+        ],
+        "S": [
+          "N-S",
+          "S-W"
+        ],
+        "W": [
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 1,
+        "S": 2,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-26",
+        "rep_mask": 26,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 38,
+      "bits": "011001",
+      "render_name": "tile_38_011001",
+      "active_paths": [
+        "E-W",
+        "N-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": true,
+        "N-W": false,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 6,
+        "row": 4,
+        "x": 384,
+        "y": 256,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E"
+        ],
+        "E": [
+          "E-W",
+          "N-E"
+        ],
+        "S": [
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 2,
+        "S": 1,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-25",
+        "rep_mask": 25,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 39,
+      "bits": "111001",
+      "render_name": "tile_39_111001",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": true,
+        "N-W": false,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 7,
+        "row": 4,
+        "x": 448,
+        "y": 256,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E"
+        ],
+        "E": [
+          "E-W",
+          "N-E"
+        ],
+        "S": [
+          "N-S",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-27",
+        "rep_mask": 27,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 40,
+      "bits": "000101",
+      "render_name": "tile_40_000101",
+      "active_paths": [
+        "N-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": false,
+        "N-W": true,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 0,
+        "row": 5,
+        "x": 0,
+        "y": 320,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-W"
+        ],
+        "E": [],
+        "S": [
+          "S-W"
+        ],
+        "W": [
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 0,
+        "S": 1,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-12",
+        "rep_mask": 12,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 41,
+      "bits": "100101",
+      "render_name": "tile_41_100101",
+      "active_paths": [
+        "N-S",
+        "N-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": false,
+        "N-W": true,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 1,
+        "row": 5,
+        "x": 64,
+        "y": 320,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-W"
+        ],
+        "E": [],
+        "S": [
+          "N-S",
+          "S-W"
+        ],
+        "W": [
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 0,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-14",
+        "rep_mask": 14,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 42,
+      "bits": "010101",
+      "render_name": "tile_42_010101",
+      "active_paths": [
+        "E-W",
+        "N-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": false,
+        "N-W": true,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 2,
+        "row": 5,
+        "x": 128,
+        "y": 320,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-W"
+        ],
+        "E": [
+          "E-W"
+        ],
+        "S": [
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 1,
+        "W": 3
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-13",
+        "rep_mask": 13,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 43,
+      "bits": "110101",
+      "render_name": "tile_43_110101",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": false,
+        "N-W": true,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 3,
+        "row": 5,
+        "x": 192,
+        "y": 320,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-W"
+        ],
+        "E": [
+          "E-W"
+        ],
+        "S": [
+          "N-S",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 1,
+        "S": 2,
+        "W": 3
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-15",
+        "rep_mask": 15,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 44,
+      "bits": "001101",
+      "render_name": "tile_44_001101",
+      "active_paths": [
+        "N-E",
+        "N-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": true,
+        "N-W": true,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 4,
+        "row": 5,
+        "x": 256,
+        "y": 320,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "N-E"
+        ],
+        "S": [
+          "S-W"
+        ],
+        "W": [
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 1,
+        "S": 1,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-28",
+        "rep_mask": 28,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 45,
+      "bits": "101101",
+      "render_name": "tile_45_101101",
+      "active_paths": [
+        "N-S",
+        "N-E",
+        "N-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": true,
+        "N-W": true,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 5,
+        "row": 5,
+        "x": 320,
+        "y": 320,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "N-E"
+        ],
+        "S": [
+          "N-S",
+          "S-W"
+        ],
+        "W": [
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 3,
+        "E": 1,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-30",
+        "rep_mask": 30,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 46,
+      "bits": "011101",
+      "render_name": "tile_46_011101",
+      "active_paths": [
+        "E-W",
+        "N-E",
+        "N-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": true,
+        "N-W": true,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 6,
+        "row": 5,
+        "x": 384,
+        "y": 320,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "N-E"
+        ],
+        "S": [
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 1,
+        "W": 3
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-29",
+        "rep_mask": 29,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 47,
+      "bits": "111101",
+      "render_name": "tile_47_111101",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-E",
+        "N-W",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": true,
+        "N-W": true,
+        "S-E": false,
+        "S-W": true
+      },
+      "path_count": 5,
+      "empty": false,
+      "cell": {
+        "col": 7,
+        "row": 5,
+        "x": 448,
+        "y": 320,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "N-E"
+        ],
+        "S": [
+          "N-S",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 3,
+        "E": 2,
+        "S": 2,
+        "W": 3
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-31",
+        "rep_mask": 31,
+        "direction": 12,
+        "rotation_steps_cw": 3,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 48,
+      "bits": "000011",
+      "render_name": "tile_48_000011",
+      "active_paths": [
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": false,
+        "N-W": false,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 2,
+      "empty": false,
+      "cell": {
+        "col": 0,
+        "row": 6,
+        "x": 0,
+        "y": 384,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [],
+        "E": [
+          "S-E"
+        ],
+        "S": [
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 0,
+        "E": 1,
+        "S": 2,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-12",
+        "rep_mask": 12,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 49,
+      "bits": "100011",
+      "render_name": "tile_49_100011",
+      "active_paths": [
+        "N-S",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": false,
+        "N-W": false,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 1,
+        "row": 6,
+        "x": 64,
+        "y": 384,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S"
+        ],
+        "E": [
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 3,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-13",
+        "rep_mask": 13,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 50,
+      "bits": "010011",
+      "render_name": "tile_50_010011",
+      "active_paths": [
+        "E-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": false,
+        "N-W": false,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 2,
+        "row": 6,
+        "x": 128,
+        "y": 384,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [],
+        "E": [
+          "E-W",
+          "S-E"
+        ],
+        "S": [
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 0,
+        "E": 2,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-14",
+        "rep_mask": 14,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 51,
+      "bits": "110011",
+      "render_name": "tile_51_110011",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": false,
+        "N-W": false,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 3,
+        "row": 6,
+        "x": 192,
+        "y": 384,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S"
+        ],
+        "E": [
+          "E-W",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 2,
+        "S": 3,
+        "W": 2
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-15",
+        "rep_mask": 15,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 52,
+      "bits": "001011",
+      "render_name": "tile_52_001011",
+      "active_paths": [
+        "N-E",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": true,
+        "N-W": false,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 4,
+        "row": 6,
+        "x": 256,
+        "y": 384,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E"
+        ],
+        "E": [
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 2,
+        "S": 2,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-28",
+        "rep_mask": 28,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 53,
+      "bits": "101011",
+      "render_name": "tile_53_101011",
+      "active_paths": [
+        "N-S",
+        "N-E",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": true,
+        "N-W": false,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 5,
+        "row": 6,
+        "x": 320,
+        "y": 384,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E"
+        ],
+        "E": [
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 3,
+        "W": 1
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-30",
+        "rep_mask": 30,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 54,
+      "bits": "011011",
+      "render_name": "tile_54_011011",
+      "active_paths": [
+        "E-W",
+        "N-E",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": true,
+        "N-W": false,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 6,
+        "row": 6,
+        "x": 384,
+        "y": 384,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E"
+        ],
+        "E": [
+          "E-W",
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 3,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-29",
+        "rep_mask": 29,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 55,
+      "bits": "111011",
+      "render_name": "tile_55_111011",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-E",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": true,
+        "N-W": false,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 5,
+      "empty": false,
+      "cell": {
+        "col": 7,
+        "row": 6,
+        "x": 448,
+        "y": 384,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E"
+        ],
+        "E": [
+          "E-W",
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 3,
+        "S": 3,
+        "W": 2
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-31",
+        "rep_mask": 31,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 56,
+      "bits": "000111",
+      "render_name": "tile_56_000111",
+      "active_paths": [
+        "N-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": false,
+        "N-W": true,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 3,
+      "empty": false,
+      "cell": {
+        "col": 0,
+        "row": 7,
+        "x": 0,
+        "y": 448,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-W"
+        ],
+        "E": [
+          "S-E"
+        ],
+        "S": [
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 1,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-28",
+        "rep_mask": 28,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 57,
+      "bits": "100111",
+      "render_name": "tile_57_100111",
+      "active_paths": [
+        "N-S",
+        "N-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": false,
+        "N-W": true,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 1,
+        "row": 7,
+        "x": 64,
+        "y": 448,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-W"
+        ],
+        "E": [
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 1,
+        "S": 3,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-29",
+        "rep_mask": 29,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 58,
+      "bits": "010111",
+      "render_name": "tile_58_010111",
+      "active_paths": [
+        "E-W",
+        "N-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": false,
+        "N-W": true,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 2,
+        "row": 7,
+        "x": 128,
+        "y": 448,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "S-E"
+        ],
+        "S": [
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 1,
+        "E": 2,
+        "S": 2,
+        "W": 3
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-30",
+        "rep_mask": 30,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 59,
+      "bits": "110111",
+      "render_name": "tile_59_110111",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": false,
+        "N-W": true,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 5,
+      "empty": false,
+      "cell": {
+        "col": 3,
+        "row": 7,
+        "x": 192,
+        "y": 448,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 3,
+        "W": 3
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-31",
+        "rep_mask": 31,
+        "direction": 8,
+        "rotation_steps_cw": 2,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 60,
+      "bits": "001111",
+      "render_name": "tile_60_001111",
+      "active_paths": [
+        "N-E",
+        "N-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": false,
+        "N-E": true,
+        "N-W": true,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 4,
+      "empty": false,
+      "cell": {
+        "col": 4,
+        "row": 7,
+        "x": 256,
+        "y": 448,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 2,
+        "S": 2,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-60",
+        "rep_mask": 60,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 61,
+      "bits": "101111",
+      "render_name": "tile_61_101111",
+      "active_paths": [
+        "N-S",
+        "N-E",
+        "N-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": false,
+        "N-E": true,
+        "N-W": true,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 5,
+      "empty": false,
+      "cell": {
+        "col": 5,
+        "row": 7,
+        "x": 320,
+        "y": 448,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 3,
+        "E": 2,
+        "S": 3,
+        "W": 2
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-61",
+        "rep_mask": 61,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    },
+    {
+      "mask": 62,
+      "bits": "011111",
+      "render_name": "tile_62_011111",
+      "active_paths": [
+        "E-W",
+        "N-E",
+        "N-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": false,
+        "E-W": true,
+        "N-E": true,
+        "N-W": true,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 5,
+      "empty": false,
+      "cell": {
+        "col": 6,
+        "row": 7,
+        "x": 384,
+        "y": 448,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 2,
+        "E": 3,
+        "S": 2,
+        "W": 3
+      },
+      "crossings": [],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-61",
+        "rep_mask": 61,
+        "direction": 4,
+        "rotation_steps_cw": 1,
+        "is_representative": false
+      }
+    },
+    {
+      "mask": 63,
+      "bits": "111111",
+      "render_name": "tile_63_111111",
+      "active_paths": [
+        "N-S",
+        "E-W",
+        "N-E",
+        "N-W",
+        "S-E",
+        "S-W"
+      ],
+      "path_states": {
+        "N-S": true,
+        "E-W": true,
+        "N-E": true,
+        "N-W": true,
+        "S-E": true,
+        "S-W": true
+      },
+      "path_count": 6,
+      "empty": false,
+      "cell": {
+        "col": 7,
+        "row": 7,
+        "x": 448,
+        "y": 448,
+        "w": 64,
+        "h": 64
+      },
+      "edges_used": {
+        "N": [
+          "N-S",
+          "N-E",
+          "N-W"
+        ],
+        "E": [
+          "E-W",
+          "N-E",
+          "S-E"
+        ],
+        "S": [
+          "N-S",
+          "S-E",
+          "S-W"
+        ],
+        "W": [
+          "E-W",
+          "N-W",
+          "S-W"
+        ]
+      },
+      "edge_degree": {
+        "N": 3,
+        "E": 3,
+        "S": 3,
+        "W": 3
+      },
+      "crossings": [
+        [
+          "N-S",
+          "E-W"
+        ]
+      ],
+      "rotation_class": {
+        "prototype": "gofarovich-scl-rail-63",
+        "rep_mask": 63,
+        "direction": 0,
+        "rotation_steps_cw": 0,
+        "is_representative": true
+      }
+    }
+  ]
+}

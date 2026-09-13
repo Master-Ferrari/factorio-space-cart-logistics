@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────
+#  Git LFS: тяжёлые бинарники хранятся отдельно от истории git.
+#  Правила действуют только на НОВЫЕ добавления (git add).
+#  Старая история не переезжает сама — но там и нет ничего тяжелее 2 МБ.
+# ─────────────────────────────────────────────────────────────
+
+# --- 3D-исходники и обмен ---
+*.c4d    filter=lfs diff=lfs merge=lfs -text
+*.blend  filter=lfs diff=lfs merge=lfs -text
+*.fbx    filter=lfs diff=lfs merge=lfs -text
+*.obj    filter=lfs diff=lfs merge=lfs -text
+*.stl    filter=lfs diff=lfs merge=lfs -text
+*.pur    filter=lfs diff=lfs merge=lfs -text
+
+# --- Substance Painter / Photoshop ---
+*.spp    filter=lfs diff=lfs merge=lfs -text
+*.sbsar  filter=lfs diff=lfs merge=lfs -text
+*.psd    filter=lfs diff=lfs merge=lfs -text
+*.psb    filter=lfs diff=lfs merge=lfs -text
+
+# --- HDRI и текстуры ---
+*.exr    filter=lfs diff=lfs merge=lfs -text
+*.hdr    filter=lfs diff=lfs merge=lfs -text
+*.tga    filter=lfs diff=lfs merge=lfs -text
+*.tif    filter=lfs diff=lfs merge=lfs -text
+*.tiff   filter=lfs diff=lfs merge=lfs -text
+
+# --- Растр внутри 3d/ (текстуры, ренлеры, промежуточные спрайты) ---
+#     Спрайты самого мода в graphics/ намеренно НЕ в LFS:
+#     они мелкие и должны работать у любого, кто просто скачал zip.
+3d/**/*.png  filter=lfs diff=lfs merge=lfs -text
+3d/**/*.jpg  filter=lfs diff=lfs merge=lfs -text
