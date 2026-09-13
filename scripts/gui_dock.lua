@@ -252,9 +252,10 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
 
   add_reorder(row, kind, idx, idx > 1, idx < count)  -- ↑/↓ слева, как у рельса
 
-  -- отступ слева от первого операнда: 6px у logic-строк, 0 у quality/slots — у
-  -- последних левый операнд несёт двухстрочную подпись, она задаёт баланс сама.
+  -- растяжка между стрелками и операндами: галочки, операнды и знак сравнения
+  -- прижаты к правому краю карточки
   local spacer0 = row.add{ type = "empty-widget" }
+  spacer0.style.horizontally_stretchable = true
 
   if cond.ctype == "quality" or cond.ctype == "slots" then
     -- числовая строка: левый «операнд» зафиксирован (качество каретки / её
@@ -262,7 +263,6 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
     -- enabled=false (серая иконка читалась как «выключено»), а
     -- ignored_by_interaction: обычная отрисовка, но не кликается и не ховерится
     -- (тултип при этом живёт — ловит невидимый враппер).
-    spacer0.style.width = 0  -- надпись левого операнда сама держит баланс
     local is_q = cond.ctype == "quality"
     local tipbase = is_q and "cond-quality-" or "cond-slots-"
     -- вместо столбца галочек R/G/C (у logic-строки) — двухстрочная подпись
@@ -270,7 +270,7 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
     -- поэтому в две строки, мелким шрифтом)
     local lbl = row.add{ type = "label",
       caption = { "gofarovich-scl-gui." .. (is_q and "cond-lbl-quality" or "cond-lbl-slots") } }
-    lbl.style.font = "default-small"
+    lbl.style.font = "default-small-bold"
     lbl.style.single_line = false
     lbl.style.width = 44
     local anywrap = row.add{ type = "flow",
@@ -302,7 +302,6 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
       allow_constant = not is_q,
     })
   else
-    spacer0.style.width = 6  -- воздух слева от первого операнда logic-строки
     -- левый операнд: только сигнал (с вайлдкардами any/every/each)
     add_operand(row, key, kind, idx, "siga",
       { use_signal = true, signal = cond.signal },
@@ -321,9 +320,6 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
       cond.rsrc or {}, wired_r, wired_g, cond.use_signal == true)
   end
 
-  local spacer1 = row.add{ type = "empty-widget" }
-  spacer1.style.horizontally_stretchable = true
-
   -- крестик — frame_action_button: прозрачная подложка (не серый прямоугольник
   -- поверх зелёной lit-карточки), проявляется только при наведении
   local del = row.add{ type = "sprite-button", name = GUIDock.DK .. "del" .. sfx,
@@ -331,7 +327,7 @@ local function add_cond_row(parent, key, kind, idx, cond, count, wired_r, wired_
     hovered_sprite = "utility/close_black", clicked_sprite = "utility/close",
     tooltip = { "gofarovich-scl-gui.del-cond" } }
   del.style.size = 20
-  del.style.left_margin = 4   -- воздух перед крестиком
+  del.style.left_margin = 12  -- отступ группы операндов до крестика
   del.style.right_margin = 4  -- чуть воздуха после крестика
 
   return box
