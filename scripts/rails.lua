@@ -29,6 +29,18 @@ R.on_blackout = nil
 local function key_of(node) return G.key_of_tile(node.x, node.y) end
 R.key_of = key_of
 
+-- Очередь отложенной смены класса. Создаётся лениво, а не только в ensure_storage:
+-- перезагрузка сейва БЕЗ бампа версии мода не даёт on_configuration_changed, и поле
+-- в storage не появляется — а читаем мы его каждый тик.
+local function remorph_queue()
+  local queue = storage.rail_remorph
+  if not queue then
+    queue = {}
+    storage.rail_remorph = queue
+  end
+  return queue
+end
+
 -- ── тишина крафт-машины ────────────────────────────────────────────────
 -- База рельса — assembling-machine без единого рецепта (см. data.lua), т.е. по
 -- умолчанию она вечно висит в статусе no_recipe с ванильной иконкой-ошибкой.
@@ -86,12 +98,43 @@ function R.restore_wires(e, saved)
   end
 end
 
+-- Пересоздать сущность тайла под маску другого класса. Отдельно от
+-- apply_entity_mask, потому что вызывается ОТЛОЖЕННО — см. R.flush_remorph.
+local function swap_entity(node, mask)
+  local e = node.entity
+  if not (e and e.valid) then return false end
+  local name, dir, mir = G.spec_of_mask(mask)
+  local surface, position, force = e.surface, e.position, e.force
+  local wires = R.snapshot_wires(e)
+  local marks = R.snapshot_marks(e)
+  e.destroy()
+  local new = surface.create_entity({
+    name = name, position = position, force = force, direction = dir,
+    mirroring = mir, create_build_effect_smoke = false,
+  })
+  if not new then return false end
+  R.quiet_entity(new)
+  R.restore_wires(new, wires)
+  R.restore_marks(new, marks)
+  node.entity = new
+  return true
+end
+
 -- Привести сущность тайла к маске. Маска сущности учитывает mirroring (флип
 -- чертежа): корректно отзеркаленная сущность живёт как есть, морф не нужен.
--- Иначе: тот же класс → пишем direction и mirroring (класс = орбита D4, внутри неё
--- восемь положений, пересоздавать нечего); другой класс (или движок не дал
--- повернуть) → пересоздание с переносом проводов. Возвращает true, если сущность
--- реально менялась.
+-- Внутри класса (орбита D4, восемь положений) — просто пишем direction/mirroring,
+-- сущность та же, это безопасно всегда. Смена КЛАССА требует пересоздания, и вот
+-- его синхронно делать нельзя:
+--
+--   Движок при сносе области (ctrl+X, деконструкт-планировщик, редактор) собирает
+--   список жертв ОДИН раз, до начала сноса. Снос первой жертвы перестраивает
+--   соседей, пересозданный сосед — уже ДРУГАЯ сущность, в списке её нет, и снос
+--   её не трогает. На поле 4×4 так выживало 8 рельсов ровно в шахматном порядке,
+--   все с маской 0 (пустая ячейка арта — визуально «пусто», видна одна подложка).
+--
+-- Поэтому смену класса откладываем до конца тика: к этому моменту операция сноса
+-- уже прошла целиком, а тайлы, которые сами были снесены, из storage.rails ушли.
+-- Возвращает true, если сущность реально изменилась ПРЯМО СЕЙЧАС.
 local function apply_entity_mask(node, mask)
   local e = node.entity
   if not (e and e.valid) then return false end
@@ -101,21 +144,33 @@ local function apply_entity_mask(node, mask)
     e.direction = dir
     if e.mirroring ~= mir then e.mirroring = mir end
     if G.mask_of_entity(e.name, e.direction, e.mirroring) == mask then return true end
-    -- движок не дал повернуть — фолбэк на пересоздание
+    -- движок не дал повернуть — пусть разбирается отложенное пересоздание
   end
-  local surface, position, force = e.surface, e.position, e.force
-  local wires = R.snapshot_wires(e)
-  local marks = R.snapshot_marks(e)
-  e.destroy()
-  local new = surface.create_entity({
-    name = name, position = position, force = force, direction = dir,
-    mirroring = mir, create_build_effect_smoke = false,
-  })
-  R.quiet_entity(new)
-  R.restore_wires(new, wires)
-  R.restore_marks(new, marks)
-  node.entity = new
-  return true
+  remorph_queue()[key_of(node)] = true
+  return false
+end
+
+-- Отложенная смена класса: зовётся раз за тик из control.lua, ДО движения кареток.
+-- Порядок обхода фиксирован сортировкой ключей — мультиплеер-детерминизм.
+function R.flush_remorph()
+  local queue = remorph_queue()
+  if not next(queue) then return end
+  storage.rail_remorph = {}
+  local keys = {}
+  for key in pairs(queue) do keys[#keys + 1] = key end
+  table.sort(keys)
+  for _, key in ipairs(keys) do
+    local node = storage.rails[key]
+    if node then
+      local e = node.entity
+      -- за время ожидания маска могла прийти в норму другим путём
+      if e and e.valid and G.mask_of_entity(e.name, e.direction, e.mirroring) ~= node.eff_mask then
+        if swap_entity(node, node.eff_mask) and R.on_geometry_changed then
+          R.on_geometry_changed(key)
+        end
+      end
+    end
+  end
 end
 
 -- Тянется ли из маски хоть одно соединение на сторону side.

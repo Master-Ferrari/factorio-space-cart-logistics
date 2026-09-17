@@ -277,6 +277,7 @@ end
 -- ── инициализация storage ──────────────────────────────────────────
 local function ensure_storage()
   storage.rails = storage.rails or {}
+  storage.rail_remorph = storage.rail_remorph or {}  -- ключи тайлов, ждущих смены класса (rails.flush_remorph)
   storage.convoys = storage.convoys or {}
   storage.carts = storage.carts or {}
   storage.next_convoy_id = storage.next_convoy_id or 1
@@ -309,6 +310,7 @@ local function rebuild_world()
     }
   end
   storage.rails = {}
+  storage.rail_remorph = {}
   for _, surface in pairs(game.surfaces) do
     for _, e in pairs(surface.find_entities_filtered({ name = G.RAIL_NAMES })) do
       -- rebuild гоняется при КАЖДОМ апдейте мода, а узлы здесь собираются в обход
@@ -424,6 +426,10 @@ end)
 script.on_event(defines.events.on_player_setup_blueprint, on_setup_blueprint)
 
 script.on_event(defines.events.on_tick, function()
+  -- Смена класса рельса отложена до конца тика (см. rails.lua: иначе пересозданная
+  -- сущность выпадает из списка жертв движка при сносе области). Гасим очередь
+  -- ДО движения кареток — геометрия тика должна быть уже согласована.
+  R.flush_remorph()
   C.on_tick()
   Docks.on_tick()       -- после C.on_tick: курсоры кареток уже сдвинуты этим тиком
   -- открытые окна груза кареток: игрок перекладывает предметы руками, событий у
