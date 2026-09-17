@@ -412,15 +412,34 @@ script.on_event(defines.events.on_marked_for_deconstruction, on_marked, rail_fil
 -- правят галочки GUI / авто-соседи (поворот чертежа — пожалуйста, там ремапится).
 -- Комбинатор направленный нативно, движок R разрешает — откатываем. Флип в мире
 -- комбинаторам движок не предлагает; хэндлер — страховка на смену базы.
-script.on_event(defines.events.on_player_rotated_entity, function(event)
+-- R / shift+R / H / V по наведённому рельсу (v2.7). Движок уже применил поворот или
+-- зеркало к сущности — нам остаётся решить, принимать это или откатить.
+--   manual-режим: геометрия принадлежит игроку → ПРИНИМАЕМ. Новую маску не считаем
+--     сами, а читаем с сущности: что бы движок ни сделал (R, shift+R, H, V), маска
+--     после трансформа — снова одна из 64 (набор замкнут под D4), и взять её у
+--     движка надёжнее, чем дублировать его же арифметику у себя.
+--   auto-режим: геометрия принадлежит соседям, ручная правка всё равно была бы
+--     перетёрта первым же пересчётом → ОТКАТЫВАЕМ сразу и говорим об этом.
+--     Откат точечный: прототип трансформ не меняет (орбита D4 та же), поэтому
+--     достаточно вернуть direction/mirroring канонической формы eff_mask.
+local function on_transformed(event)
   local e = event.entity
   if not (e and e.valid and IS_RAIL[e.name]) then return end
-  e.direction = event.previous_direction
-end)
+  local key = G.key_of_tile(G.tile_of(e.position))
+  local node = storage.rails[key]
+  if not node then return end
+  if node.mode == "manual" then
+    node.manual_mask = G.mask_of_entity(e.name, e.direction, e.mirroring)
+    R.rail_update_around(key)
+  else
+    local _, dir, mir = G.spec_of_mask(node.eff_mask)
+    e.direction, e.mirroring = dir, mir
+    warn(event.player_index, "geometry-auto")
+  end
+end
 
--- Флип (H/V) — ЗАКОННОЕ состояние рельса с v2.7: маска = f(имя, direction, mirroring),
--- зеркало маски — снова маска (алгебра в railmask). Отката здесь быть не должно;
--- геометрию поправит обычный морф по соседям, как и после поворота чертежа.
+script.on_event(defines.events.on_player_rotated_entity, on_transformed)
+script.on_event(defines.events.on_player_flipped_entity, on_transformed)
 
 -- Сохранение ручных настроек рельса в теги при blueprint/copy-paste (B2).
 script.on_event(defines.events.on_player_setup_blueprint, on_setup_blueprint)
