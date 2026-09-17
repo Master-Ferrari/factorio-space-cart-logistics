@@ -1,14 +1,20 @@
--- railmask.lua — контракт «маска соединений ↔ прототип × направление».
--- Общий для data-стадии (генерация 22 прототипов рельса) и runtime (морф сущности).
+-- railmask.lua — контракт «маска соединений ↔ прототип × direction × mirroring».
+-- Общий для data-стадии (генерация прототипов рельса) и runtime (морф сущности).
 -- Чистый Lua: без storage/game.
 --
--- Рельс — один entity на тайл (constant-combinator, см. data.lua). 64 маски (6 бит,
--- контракт «бит → ячейка» в readme) сжимаются поворотом на 90° в 22 класса-орбиты
--- (Бёрнсайд: (64+4+16+4)/4). Класс = прототип, поворот внутри класса = direction
--- (N/E/S/W = 0/4/8/12). Имя прототипа — по наименьшей маске орбиты (rep):
--- gofarovich-scl-rail-<rep>. Sprite4Way прототипа: north = арт rep, east = rep,
--- повёрнутый на 90° CW, и т.д. — так сущность с direction d показывает ровно
--- маску rot_cw^(d/4)(rep), и блюпринт-поворот вертит геометрию нативно.
+-- Рельс — один entity на тайл (assembling-machine, см. data.lua). 64 маски (6 бит,
+-- контракт «бит → ячейка» в readme) сжимаются группой D4 (4 поворота × зеркало)
+-- в 19 классов-орбит. Класс = прототип, положение внутри класса = (direction,
+-- mirroring). Имя прототипа — по наименьшей маске орбиты (rep):
+-- gofarovich-scl-rail-<rep>.
+--
+-- Состояние сущности = трансформ T = R^(dir/4) ∘ H^(mirroring) над rep-маской:
+-- сначала зеркало (локальное — движок зеркалит «через ось, смотрящую по direction»),
+-- потом поворот. Отсюда два набора спрайтов на прототип:
+--   graphics_set         = ячейки rot_cw(rep, 0..3)
+--   graphics_set_flipped = ячейки rot_cw(hmirror(rep), 0..3)
+-- Флип чертежа движок делает сам, меняя (dir, mirroring) — маска при этом
+-- получается ровно зеркальной, см. ALGEBRA-ассерт внизу.
 
 local M = {}
 
@@ -32,8 +38,6 @@ function M.rot_cw(mask, steps)
 end
 
 -- Зеркало по горизонтали (мир: x → -x): N-S/E-W на месте, N-E↔N-W, S-E↔S-W.
--- У комбинаторов mirroring-бита нет (флип чертежей не поддержан, см. readme v2.6),
--- но runtime остаётся mirroring-aware: заработает само при смене базы.
 local MIR = { [0] = 0, [1] = 1, [2] = 3, [3] = 2, [4] = 5, [5] = 4 }
 
 function M.hmirror(mask)
@@ -46,22 +50,34 @@ function M.hmirror(mask)
   return out
 end
 
-M.CLASSES = {}  -- массив { rep, name, masks = {[0..3] = маска при direction r*4} }
-M.BY_MASK = {}  -- [mask] = { name, rep, dir } — каноничная пара (наименьший поворот)
+-- класс = { rep, name, masks = {[0..3]}, masks_flipped = {[0..3]} }
+--   masks[r]         — маска при direction r*4, mirroring = false
+--   masks_flipped[r] — она же при mirroring = true
+M.CLASSES = {}
+M.BY_MASK = {}  -- [mask] = { name, rep, dir, mirroring } — каноничная тройка
 M.BY_NAME = {}  -- [name] = класс
 M.NAMES   = {}  -- список имён прототипов (фильтры событий, find_entities)
 M.IS_RAIL = {}  -- [name] = true
 
 for m = 0, 63 do
   if not M.BY_MASK[m] then
-    local class = { rep = m, name = M.PREFIX .. m, masks = {} }
-    local cur = m
+    local class = { rep = m, name = M.PREFIX .. m, masks = {}, masks_flipped = {} }
+    local mirrored = M.hmirror(m)
+    -- Сначала раскладываем незеркальные положения, потом зеркальные: так
+    -- каноничная форма маски всегда без зеркала, если она вообще достижима.
     for r = 0, 3 do
-      class.masks[r] = cur
-      if not M.BY_MASK[cur] then
-        M.BY_MASK[cur] = { name = class.name, rep = m, dir = r * 4 }
+      local plain = M.rot_cw(m, r)
+      class.masks[r] = plain
+      if not M.BY_MASK[plain] then
+        M.BY_MASK[plain] = { name = class.name, rep = m, dir = r * 4, mirroring = false }
       end
-      cur = M.rot_cw(cur)
+    end
+    for r = 0, 3 do
+      local flipped = M.rot_cw(mirrored, r)
+      class.masks_flipped[r] = flipped
+      if not M.BY_MASK[flipped] then
+        M.BY_MASK[flipped] = { name = class.name, rep = m, dir = r * 4, mirroring = true }
+      end
     end
     M.CLASSES[#M.CLASSES + 1] = class
     M.BY_NAME[class.name] = class
@@ -70,15 +86,13 @@ for m = 0, 63 do
   end
 end
 
--- маска → (имя прототипа, direction 0/4/8/12)
+-- маска → (имя прототипа, direction 0/4/8/12, mirroring)
 function M.spec_of_mask(mask)
   local s = M.BY_MASK[mask]
-  return s.name, s.dir
+  return s.name, s.dir, s.mirroring
 end
 
 -- (имя прототипа, direction, mirroring?) → маска; nil, если имя — не рельс.
--- Состояние сущности = трансформ T = R^(dir/4) ∘ H^(mirroring) над rep-маской:
--- сначала зеркало (локальное), потом поворот. У комбинатора mirroring всегда false.
 function M.mask_of_entity(name, dir, mirroring)
   local class = M.BY_NAME[name]
   if not class then return nil end
@@ -88,12 +102,22 @@ end
 
 -- Самопроверка контракта (грошовая, гоняем на каждой загрузке обеих стадий).
 do
-  assert(#M.CLASSES == 22, "railmask: expected 22 classes, got " .. #M.CLASSES)
+  assert(#M.CLASSES == 19, "railmask: expected 19 classes, got " .. #M.CLASSES)
   for m = 0, 63 do
     local s = M.BY_MASK[m]
     assert(s, "railmask: mask " .. m .. " not covered")
-    assert(M.mask_of_entity(s.name, s.dir) == m, "railmask: roundtrip failed for mask " .. m)
+    assert(M.mask_of_entity(s.name, s.dir, s.mirroring) == m,
+      "railmask: roundtrip failed for mask " .. m)
     assert(M.hmirror(M.hmirror(m)) == m, "railmask: hmirror not involutive for " .. m)
+  end
+  -- ALGEBRA: H∘R∘H = R⁻¹, значит зеркало состояния (dir, mir) — это состояние
+  -- (−dir, !mir) того же прототипа. Именно это движок и делает по H/V, поэтому
+  -- флип чертежа даёт геометрически верную маску без единой строчки обработчиков.
+  for _, class in ipairs(M.CLASSES) do
+    for r = 0, 3 do
+      assert(M.hmirror(class.masks[r]) == class.masks_flipped[(4 - r) % 4],
+        "railmask: mirror algebra broken for " .. class.name .. " dir " .. r)
+    end
   end
 end
 

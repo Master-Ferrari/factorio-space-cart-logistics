@@ -1,9 +1,11 @@
 -- rails.lua — граф рельс: соединения тайла (геометрия), битмаска, морф сущности,
 -- маршрут. Геометрия = галочки/соседи (eff_mask); куда поедет каретка — направленные
 -- условия входа (cond_lists), см. readme «Сигналы и условия (v2.4)».
--- Рельс — ОДНА сущность на тайл (constant-combinator): маска кодируется парой
--- (прототип, direction) по контракту railmask.lua. Смена маски = морф: внутри
--- класса — запись direction, между классами — пересоздание с переносом проводов.
+-- Рельс — ОДНА сущность на тайл (assembling-machine): маска кодируется тройкой
+-- (прототип, direction, mirroring) по контракту railmask.lua. Смена маски = морф:
+-- внутри класса — запись direction/mirroring, между классами — пересоздание с
+-- переносом проводов. Под рельсом живёт подложка (underlay.lua) — она зависит
+-- только от НАЛИЧИЯ соседних рельсов, не от их масок.
 -- storage.rails[key] = { x, y, entity, conns = {["N-S"]=true,...}, mask, eff_mask,
 --   mode, auto_mask, manual_mask, conditions_on(bool),
 --   cond_lists = { [entry] = { {exit,...предикат}, ... } } }
@@ -12,6 +14,7 @@
 
 local G = require("scripts.geometry")
 local Circuit = require("scripts.circuit")
+local UL = require("scripts.underlay")
 
 local R = {}
 
@@ -25,6 +28,23 @@ R.on_blackout = nil
 
 local function key_of(node) return G.key_of_tile(node.x, node.y) end
 R.key_of = key_of
+
+-- ── тишина крафт-машины ────────────────────────────────────────────────
+-- База рельса — assembling-machine без единого рецепта (см. data.lua), т.е. по
+-- умолчанию она вечно висит в статусе no_recipe с ванильной иконкой-ошибкой.
+-- Гасим: `active` в 2.1 READ ONLY, писать надо `disabled_by_script` — после этого
+-- статус намертво disabled_by_script, а `custom_status` подменяет то, что видно
+-- в тултипе. Чтение цепи это НЕ ломает (проверено: сигналы читаются как обычно).
+-- Вызывать для КАЖДОГО рельса, откуда бы он ни взялся: постройка, бот, призрак,
+-- клон, морф, rebuild_world.
+function R.quiet_entity(e)
+  if not (e and e.valid) then return end
+  e.disabled_by_script = true
+  e.custom_status = {
+    diode = defines.entity_status_diode.green,
+    label = { "entity-name.gofarovich-scl-rail" },
+  }
+end
 
 -- ── провода: снимок/восстановление (морф, миграция, защита от майнинга) ─
 function R.snapshot_wires(e)
@@ -48,17 +68,18 @@ end
 
 -- Привести сущность тайла к маске. Маска сущности учитывает mirroring (флип
 -- чертежа): корректно отзеркаленная сущность живёт как есть, морф не нужен.
--- Иначе: тот же класс → пишем direction (+сбрасываем зеркало — каноничная форма
--- всегда без него); другой класс (или direction не применился) → пересоздание
--- с переносом проводов. Возвращает true, если сущность реально менялась.
+-- Иначе: тот же класс → пишем direction и mirroring (класс = орбита D4, внутри неё
+-- восемь положений, пересоздавать нечего); другой класс (или движок не дал
+-- повернуть) → пересоздание с переносом проводов. Возвращает true, если сущность
+-- реально менялась.
 local function apply_entity_mask(node, mask)
   local e = node.entity
   if not (e and e.valid) then return false end
   if G.mask_of_entity(e.name, e.direction, e.mirroring) == mask then return false end
-  local name, dir = G.spec_of_mask(mask)
+  local name, dir, mir = G.spec_of_mask(mask)
   if e.name == name then
     e.direction = dir
-    if e.mirroring then e.mirroring = false end
+    if e.mirroring ~= mir then e.mirroring = mir end
     if G.mask_of_entity(e.name, e.direction, e.mirroring) == mask then return true end
     -- движок не дал повернуть — фолбэк на пересоздание
   end
@@ -67,8 +88,9 @@ local function apply_entity_mask(node, mask)
   e.destroy()
   local new = surface.create_entity({
     name = name, position = position, force = force, direction = dir,
-    create_build_effect_smoke = false,
+    mirroring = mir, create_build_effect_smoke = false,
   })
+  R.quiet_entity(new)
   R.restore_wires(new, wires)
   node.entity = new
   return true
@@ -345,15 +367,20 @@ function R.recreate_entity(node)
   local wires = R.snapshot_wires(old)
   local new = surface.create_entity({
     name = name, position = position, force = force, direction = dir,
-    create_build_effect_smoke = false,
+    mirroring = old.mirroring, create_build_effect_smoke = false,
   })
   if not new then return nil end
+  R.quiet_entity(new)
   R.restore_wires(new, wires)
   node.entity = new
   return new
 end
 
 function R.rail_add(entity)
+  R.quiet_entity(entity)  -- любой путь появления рельса проходит здесь
+  -- surface снимаем ЗАРАНЕЕ: rail_update_around ниже может сморфить тайл, а морф
+  -- между классами пересоздаёт сущность — `entity` после него уже невалиден.
+  local surface = entity.surface
   local tx, ty = G.tile_of(entity.position)
   local key = G.key_of_tile(tx, ty)
   if storage.rails[key] then return end
@@ -363,9 +390,11 @@ function R.rail_add(entity)
     cond_lists = {},
   }
   R.rail_update_around(key)
+  UL.refresh_around(surface, tx, ty)
 end
 
 function R.rail_remove(entity)
+  local surface = entity.surface          -- см. rail_add: морф соседей может пересоздать сущности
   local tx, ty = G.tile_of(entity.position)
   local key = G.key_of_tile(tx, ty)
   local node = storage.rails[key]
@@ -374,6 +403,7 @@ function R.rail_remove(entity)
   for _, side in ipairs(G.SIDES) do
     R.rail_update(G.neighbor_tile(key, side))
   end
+  UL.refresh_around(surface, tx, ty)  -- узел уже снят → подложка уйдёт сама
   if R.on_geometry_changed then R.on_geometry_changed(key) end  -- закрыть GUI тайла
 end
 

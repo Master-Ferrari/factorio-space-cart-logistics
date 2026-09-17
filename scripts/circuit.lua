@@ -77,17 +77,6 @@ function Circuit.read_split(entity)
          Circuit.read_wire(entity, defines.wire_connector_id.circuit_green)
 end
 
--- Снять read-next секцию с комбинатора рельса. Payload больше туда не пишется (см. выше),
--- функция нужна для очистки СТАРЫХ секций, записанных прежней версией (миграция).
-function Circuit.clear_payload(node)
-  local comp = node and node.entity
-  if not (comp and comp.valid) then return end
-  local cb = comp.get_control_behavior()
-  if not cb then return end
-  local sec = cb.get_section(1)
-  if sec then sec.filters = {} end
-end
-
 -- Кэш на тайл-на-тик (6g). read() детерминированно, но звать get_circuit_network на
 -- КАЖДОМ входе каретки дорого (на перекрёстке за тик в тайл входят несколько кареток).
 -- В API 2.0 нет события «сигналы сети сменились», поэтому троттлим на 1 тик: тайл

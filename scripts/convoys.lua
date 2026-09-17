@@ -424,17 +424,6 @@ function C.read_next_clear_all()
 end
 
 function C.on_tick()
-  -- Миграция: прежняя версия писала payload в секции комбинаторов рельса (вывод в
-  -- провода) — теперь снято (двойной счёт при подключённом проводе). Разово снимаем
-  -- старые секции. reload без бампа версии не даёт on_configuration_changed, поэтому
-  -- чистим здесь под флагом (одна проверка за тик после миграции — пренебрежимо).
-  if not storage.rn_migrated then
-    if storage.rails then
-      for _, node in pairs(storage.rails) do Circuit.clear_payload(node) end
-    end
-    storage.rn_migrated = true
-  end
-
   local P = prof
   if P then P.total.restart() end
   local convoys = storage.convoys
@@ -678,7 +667,15 @@ function C.cart_register(entity)
   local un = entity.unit_number
   local tx, ty = G.tile_of(entity.position)
   local key = G.key_of_tile(tx, ty)
-  storage.carts[un] = { entity = entity, convoy = nil }
+  -- facing — свойство КАЖДОЙ каретки, а не только едущей: каретку без рельса под
+  -- ней (стоит на земле, держит док) док разворачивает при отпускании, и раньше
+  -- это падало на opp_facing(nil) — facing выставлялся только в cart_attach, а он
+  -- не вызывается, если под кареткой нет рельса с соединениями. Берём то, что уже
+  -- нарисовано на сущности (клон/пересбор сохраняют variation), иначе север.
+  local facing = entity.graphics_variation
+  if not facing or facing < 1 or facing > G.FACINGS then facing = 1 end
+  entity.graphics_variation = facing
+  storage.carts[un] = { entity = entity, convoy = nil, facing = facing }
   C.cart_inventory(un)  -- груз — суть каретки, создаём сразу
   local node = storage.rails[key]
   if node then

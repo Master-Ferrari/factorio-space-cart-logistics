@@ -9,11 +9,10 @@ local G = {}
 -- имена прототипов. Рельс — семейство из 22 машин (класс маски × direction,
 -- контракт в railmask.lua); item один — G.RAIL_ITEM.
 G.RAIL_ITEM = "gofarovich-scl-rail"
-G.RAIL_LEGACY = "gofarovich-scl-rail"     -- стаб старого примари-комбинатора (миграция ≤0.5.x)
 G.RAIL_NAMES = RM.NAMES                   -- список имён (фильтры событий/find)
 G.IS_RAIL = RM.IS_RAIL                    -- [name] = true
 G.mask_of_entity = RM.mask_of_entity      -- (name, direction, mirroring?) → маска
-G.spec_of_mask = RM.spec_of_mask          -- маска → (name, direction)
+G.spec_of_mask = RM.spec_of_mask          -- маска → (name, direction, mirroring)
 G.CART = "gofarovich-scl-cart"
 
 -- Порядковый номер качества в цепочке: normal 1 … legendary 5. НЕ 1+quality.level:

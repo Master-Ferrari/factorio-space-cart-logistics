@@ -21,6 +21,7 @@ local GUIDock = require("scripts.gui_dock")
 local Events = require("scripts.events")
 local Commands = require("scripts.commands")
 local DebugRails = require("scripts.debug_rails")
+local Underlay = require("scripts.underlay")
 local StyleBrowser = require("__gglib__.style_browser")
 
 local IS_RAIL, CART = G.IS_RAIL, G.CART
@@ -214,7 +215,7 @@ end
 --    на сущность и умирает при морфе рельса (пересоздание);
 --  * свои linked-инпуты copy/paste-entity-settings: источник помним КЛЮЧОМ ТАЙЛА
 --    (storage.copy_rail[player.index]) — переживает морф и работает между любыми
---    из 22 прототипов. Копирование НЕ-рельса сбрасывает источник (буфер занят другим).
+--    из 19 прототипов. Копирование НЕ-рельса сбрасывает источник (буфер занят другим).
 local function paste_rail_settings(snode, dkey)
   local dnode = storage.rails[dkey]
   if not (snode and dnode) or snode == dnode then return end
@@ -309,20 +310,11 @@ local function rebuild_world()
   end
   storage.rails = {}
   for _, surface in pairs(game.surfaces) do
-    -- миграция ≤0.5.x: примари-комбинатор (стаб в data.lua) → машина, с переносом
-    -- проводов. Маску подберёт rail_update ниже (manual persisted в saved).
-    -- Старые арт-сущности прототипа больше не имеют — их снёс сам движок при загрузке.
-    for _, e in pairs(surface.find_entities_filtered({ name = G.RAIL_LEGACY })) do
-      local pos, force = e.position, e.force
-      local wires = R.snapshot_wires(e)
-      e.destroy()
-      local new = surface.create_entity({
-        name = G.spec_of_mask(0), position = pos, force = force,
-        create_build_effect_smoke = false,
-      })
-      R.restore_wires(new, wires)
-    end
     for _, e in pairs(surface.find_entities_filtered({ name = G.RAIL_NAMES })) do
+      -- rebuild гоняется при КАЖДОМ апдейте мода, а узлы здесь собираются в обход
+      -- rail_add — значит гасить крафт-машину надо явно, иначе после апдейта все
+      -- рельсы в мире загорятся ванильным «нет рецепта».
+      R.quiet_entity(e)
       local tx, ty = G.tile_of(e.position)
       local key = G.key_of_tile(tx, ty)
       local s = saved[key]
@@ -349,6 +341,8 @@ local function rebuild_world()
   -- alt-оверлеи груза: дорисовать старым сейвам (введены после M7) и согласовать
   -- всё после миграций выше. Идемпотентно.
   Overlay.refresh_all()
+  -- подложки рельсов: сносим и раскладываем заново по текущей карте рельсов.
+  Underlay.rebuild()
   -- окна дока закрываем: апдейт мода мог сменить схему имён элементов —
   -- клики по стейл-окну молча терялись бы. Игрок просто откроет заново.
   for _, player in pairs(game.players) do GUIDock.close(player) end
@@ -360,7 +354,7 @@ script.on_configuration_changed(function()
   rebuild_world()
 end)
 
--- Фильтры: 22 прототипа рельса (+ каретка и док для built/removed).
+-- Фильтры: 19 прототипов рельса (+ каретка и док для built/removed).
 local rail_filter = {}
 for _, n in ipairs(G.RAIL_NAMES) do
   rail_filter[#rail_filter + 1] = { filter = "name", name = n }
@@ -422,11 +416,9 @@ script.on_event(defines.events.on_player_rotated_entity, function(event)
   e.direction = event.previous_direction
 end)
 
-script.on_event(defines.events.on_player_flipped_entity, function(event)
-  local e = event.entity
-  if not (e and e.valid and IS_RAIL[e.name]) then return end
-  e.mirroring = not e.mirroring
-end)
+-- Флип (H/V) — ЗАКОННОЕ состояние рельса с v2.7: маска = f(имя, direction, mirroring),
+-- зеркало маски — снова маска (алгебра в railmask). Отката здесь быть не должно;
+-- геометрию поправит обычный морф по соседям, как и после поворота чертежа.
 
 -- Сохранение ручных настроек рельса в теги при blueprint/copy-paste (B2).
 script.on_event(defines.events.on_player_setup_blueprint, on_setup_blueprint)
