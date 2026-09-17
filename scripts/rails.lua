@@ -46,6 +46,26 @@ function R.quiet_entity(e)
   }
 end
 
+-- ── движковое состояние сущности: снимок/восстановление ─────────────────
+-- Пересоздание сущности при морфе теряет ВСЁ, что движок держит на самой сущности,
+-- а не в нашем storage. Провода мы переносили с самого начала; пометка деконструкции
+-- терялась — и это был баг: при сносе области (ctrl+X, планировщик) каждый снос
+-- перестраивает соседей, пересозданный рельс выходил из-под пометки и оставался
+-- стоять. Снимать ДО destroy, накатывать ПОСЛЕ create.
+function R.snapshot_marks(e)
+  return {
+    deconstruct = e.to_be_deconstructed(),
+    force = e.force,
+    health = e.health,
+  }
+end
+
+function R.restore_marks(e, saved)
+  if not (e and e.valid and saved) then return end
+  if saved.deconstruct then e.order_deconstruction(saved.force) end
+  if saved.health then e.health = saved.health end
+end
+
 -- ── провода: снимок/восстановление (морф, миграция, защита от майнинга) ─
 function R.snapshot_wires(e)
   local saved = {}
@@ -85,6 +105,7 @@ local function apply_entity_mask(node, mask)
   end
   local surface, position, force = e.surface, e.position, e.force
   local wires = R.snapshot_wires(e)
+  local marks = R.snapshot_marks(e)
   e.destroy()
   local new = surface.create_entity({
     name = name, position = position, force = force, direction = dir,
@@ -92,6 +113,7 @@ local function apply_entity_mask(node, mask)
   })
   R.quiet_entity(new)
   R.restore_wires(new, wires)
+  R.restore_marks(new, marks)
   node.entity = new
   return true
 end
@@ -365,6 +387,7 @@ function R.recreate_entity(node)
   local surface, position, force = old.surface, old.position, old.force
   local name, dir = old.name, old.direction
   local wires = R.snapshot_wires(old)
+  local marks = R.snapshot_marks(old)
   local new = surface.create_entity({
     name = name, position = position, force = force, direction = dir,
     mirroring = old.mirroring, create_build_effect_smoke = false,
@@ -372,6 +395,7 @@ function R.recreate_entity(node)
   if not new then return nil end
   R.quiet_entity(new)
   R.restore_wires(new, wires)
+  R.restore_marks(new, marks)
   node.entity = new
   return new
 end
