@@ -492,6 +492,65 @@ end
 -- категорий. scl_dir/scl_mirror — состояние сущности в момент снятия чертежа: при
 -- постройке повёрнутого/флипнутого чертежа ремапим стороны в cond_lists/cat_order
 -- трансформом D4 (поворот × зеркало).
+-- ── ctrl+z: ручные настройки тайла в undo-стеке ─────────────────────
+-- Движок кладёт в undo-стек BlueprintEntity, собранный им самим, — наших полей
+-- (режим, условия, порядок категорий) в нём нет, и ctrl+z возвращал голый рельс.
+-- Штатный путь — `LuaUndoRedoStack::set_undo_tag`: доклеиваем те же теги, что и в
+-- чертёж, и при откате они приезжают в `event.tags` → apply_blueprint_tags.
+--
+-- Штамп откладываем, а не ставим сразу: момент появления undo-пункта относительно
+-- нашего события движком не обещан (у сноса ботами он вообще возникает позже —
+-- игрок только отдал приказ). Поэтому кладём заявку и пытаемся её приложить каждый
+-- тик, пока в свежих пунктах стека не найдётся removed-entity на нашей позиции.
+local UNDO_STAMP_TTL = 600   -- 10 секунд: дольше ждать нет смысла
+local UNDO_SCAN_ITEMS = 3    -- свежие пункты стека; глубже — уже не наш снос
+
+function R.stamp_undo_later(player_index, node)
+  if not (player_index and node and node.entity and node.entity.valid) then return end
+  local pos = node.entity.position
+  storage.undo_stamps = storage.undo_stamps or {}
+  storage.undo_stamps[#storage.undo_stamps + 1] = {
+    player_index = player_index,
+    x = pos.x, y = pos.y,
+    tags = R.blueprint_tags(node),
+    until_tick = game.tick + UNDO_STAMP_TTL,
+  }
+end
+
+local function try_stamp(stamp)
+  local player = game.get_player(stamp.player_index)
+  if not (player and player.valid) then return true end   -- некому — снимаем заявку
+  local stack = player.undo_redo_stack
+  local count = math.min(stack.get_undo_item_count(), UNDO_SCAN_ITEMS)
+  for item_index = 1, count do
+    for action_index, action in pairs(stack.get_undo_item(item_index)) do
+      local target = action.type == "removed-entity" and action.target
+      if target and target.position
+        and math.abs(target.position.x - stamp.x) < 0.01
+        and math.abs(target.position.y - stamp.y) < 0.01 then
+        -- порядок аргументов именно такой: (item_index, action_index, tag_name, tag)
+        for name, value in pairs(stamp.tags) do
+          stack.set_undo_tag(item_index, action_index, name, value)
+        end
+        return true
+      end
+    end
+  end
+  return false
+end
+
+function R.flush_undo_stamps()
+  local stamps = storage.undo_stamps
+  if not (stamps and stamps[1]) then return end
+  local keep = {}
+  for _, stamp in ipairs(stamps) do
+    if not try_stamp(stamp) and game.tick < stamp.until_tick then
+      keep[#keep + 1] = stamp
+    end
+  end
+  storage.undo_stamps = keep
+end
+
 function R.blueprint_tags(node)
   local e = node.entity
   local live = e and e.valid

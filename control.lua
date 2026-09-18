@@ -116,6 +116,9 @@ local function on_removed(event)
         return
       end
     end
+    -- ctrl+z должен вернуть рельс С настройками: движок кладёт в undo-стек свой
+    -- BlueprintEntity без наших полей, поэтому доклеиваем их тегами (rails.lua).
+    R.stamp_undo_later(event.player_index, node)
     R.rail_remove(e)
   elseif e.name == CART then
     -- груз добытой каретки — добытчику (event.buffer есть только у добычи;
@@ -150,7 +153,11 @@ local function on_marked(event)
   if C.tile_has_carts(tx, ty) then
     e.cancel_deconstruction(e.force)
     warn(event.player_index, "rail-occupied")
+    return
   end
+  -- Снос ботами: undo-пункт принадлежит игроку, отдавшему приказ, а сам снос
+  -- случится позже и уже без player_index — заявку на штамп кладём здесь.
+  R.stamp_undo_later(event.player_index, storage.rails[G.key_of_tile(tx, ty)])
 end
 
 -- Прямой клон (editor clone-area, B2-хвост): чертёжных тегов у клона нет — ручные
@@ -278,6 +285,7 @@ end
 local function ensure_storage()
   storage.rails = storage.rails or {}
   storage.rail_remorph = storage.rail_remorph or {}  -- ключи тайлов, ждущих смены класса (rails.flush_remorph)
+  storage.undo_stamps = storage.undo_stamps or {}    -- заявки на теги в undo-стеке (rails.stamp_undo_later)
   storage.convoys = storage.convoys or {}
   storage.carts = storage.carts or {}
   storage.next_convoy_id = storage.next_convoy_id or 1
@@ -449,6 +457,7 @@ script.on_event(defines.events.on_tick, function()
   -- сущность выпадает из списка жертв движка при сносе области). Гасим очередь
   -- ДО движения кареток — геометрия тика должна быть уже согласована.
   R.flush_remorph()
+  R.flush_undo_stamps()
   C.on_tick()
   Docks.on_tick()       -- после C.on_tick: курсоры кареток уже сдвинуты этим тиком
   -- открытые окна груза кареток: игрок перекладывает предметы руками, событий у
