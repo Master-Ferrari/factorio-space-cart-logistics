@@ -543,7 +543,15 @@ function GUI.register_events()
   Events.on(defines.events.on_gui_opened, function(event)
     if event.gui_type ~= defines.gui_type.entity then return end
     local e = event.entity
-    if not (e and e.valid and G.IS_RAIL[e.name]) then return end
+    if not (e and e.valid) then return end
+    -- Призрак рельса: у призрака своё имя, наш IS_RAIL его не ловит, и игрок
+    -- получал ванильное окно крафт-машины с выбором рецепта. Настраивать призрак
+    -- нечем (узла тайла ещё нет) — просто не открываем ничего.
+    if e.name == "entity-ghost" and G.IS_RAIL[e.ghost_name] then
+      game.get_player(event.player_index).opened = nil
+      return
+    end
+    if not G.IS_RAIL[e.name] then return end
     local player = game.get_player(event.player_index)
     player.opened = nil
     local tx, ty = G.tile_of(e.position)

@@ -71,6 +71,33 @@ function Commands.register()
     DebugRails.toggle(player, tonumber(cmd.parameter))
   end)
 
+  -- Диагностика ctrl+z: что лежит в undo-стеке и сколько настроек снятых тайлов
+  -- ждёт на складе (rails.trash_put).
+  commands.add_command("scl-undo-dump", "Dump the newest undo stack items", function(cmd)
+    local player = game.get_player(cmd.player_index)
+    if not player then return end
+    local stack = player.undo_redo_stack
+    local count = stack.get_undo_item_count()
+    local trashed = 0
+    for _ in pairs(storage.rail_trash or {}) do trashed = trashed + 1 end
+    player.print(("undo items: %d | настроек на складе: %d"):format(count, trashed))
+    for item_index = 1, math.min(count, 3) do
+      local actions = stack.get_undo_item(item_index)
+      player.print(("item %d: %d actions"):format(item_index, #actions))
+      for action_index, action in pairs(actions) do
+        local target = action.target
+        local tags = stack.get_undo_tags(item_index, action_index)
+        local ntags = 0
+        for _ in pairs(tags or {}) do ntags = ntags + 1 end
+        player.print(("  [%s] %s  name=%s pos=%s tags=%d"):format(
+          action_index, action.type,
+          target and target.name or "-",
+          target and target.position and string.format("%.1f,%.1f", target.position.x, target.position.y) or "-",
+          ntags))
+      end
+    end
+  end)
+
   commands.add_command("scl-stats", "Print rail/cart/convoy counts", function(cmd)
     local player = game.get_player(cmd.player_index)
     if not player then return end

@@ -26,6 +26,7 @@ local StyleBrowser = require("__gglib__.style_browser")
 
 local IS_RAIL, CART = G.IS_RAIL, G.CART
 
+
 -- Морф/удаление сущности тайла → рефреш (или закрытие) открытых GUI этого тайла
 -- + пересборка оверлея клеток (/scl-debug-rails), если включён.
 R.on_geometry_changed = function(key)
@@ -118,7 +119,10 @@ local function on_removed(event)
     end
     -- ctrl+z должен вернуть рельс С настройками: движок кладёт в undo-стек свой
     -- BlueprintEntity без наших полей, поэтому доклеиваем их тегами (rails.lua).
-    R.stamp_undo_later(event.player_index, node)
+    -- ctrl+z должен вернуть рельс С настройками, а движок кладёт в undo-стек свой
+    -- BlueprintEntity без наших полей. Снимаем настройки на склад (rails.lua) —
+    -- отдадим их обратно в момент отката, когда игрок наконец известен.
+    R.trash_put(node)
     R.rail_remove(e)
   elseif e.name == CART then
     -- груз добытой каретки — добытчику (event.buffer есть только у добычи;
@@ -155,9 +159,6 @@ local function on_marked(event)
     warn(event.player_index, "rail-occupied")
     return
   end
-  -- Снос ботами: undo-пункт принадлежит игроку, отдавшему приказ, а сам снос
-  -- случится позже и уже без player_index — заявку на штамп кладём здесь.
-  R.stamp_undo_later(event.player_index, storage.rails[G.key_of_tile(tx, ty)])
 end
 
 -- Прямой клон (editor clone-area, B2-хвост): чертёжных тегов у клона нет — ручные
@@ -285,7 +286,7 @@ end
 local function ensure_storage()
   storage.rails = storage.rails or {}
   storage.rail_remorph = storage.rail_remorph or {}  -- ключи тайлов, ждущих смены класса (rails.flush_remorph)
-  storage.undo_stamps = storage.undo_stamps or {}    -- заявки на теги в undo-стеке (rails.stamp_undo_later)
+  storage.rail_trash = storage.rail_trash or {}      -- настройки снятых тайлов для ctrl+z (rails.trash_put)
   storage.convoys = storage.convoys or {}
   storage.carts = storage.carts or {}
   storage.next_convoy_id = storage.next_convoy_id or 1
@@ -452,12 +453,23 @@ script.on_event(defines.events.on_player_flipped_entity, on_transformed)
 -- Сохранение ручных настроек рельса в теги при blueprint/copy-paste (B2).
 script.on_event(defines.events.on_player_setup_blueprint, on_setup_blueprint)
 
+-- Откат/повтор: движок восстанавливает снесённые рельсы, но без наших настроек —
+-- ставим их обратно со склада (разбор — тиком позже, призрак появляется не сразу).
+script.on_event(defines.events.on_undo_applied, function(event) R.on_undo_redo(event.actions) end)
+script.on_event(defines.events.on_redo_applied, function(event) R.on_undo_redo(event.actions) end)
+
+-- Смерть рельса: on_removed уже спрятал настройки на склад, здесь вешаем их на
+-- призрака, созданного движком, — боты отстроят тайл таким, каким он был.
+script.on_event(defines.events.on_post_entity_died, function(event)
+  if not (event.ghost and event.prototype and IS_RAIL[event.prototype.name]) then return end
+  R.restore_from_trash(event.surface_index, event.position, event.ghost)
+end)
+
 script.on_event(defines.events.on_tick, function()
   -- Смена класса рельса отложена до конца тика (см. rails.lua: иначе пересозданная
   -- сущность выпадает из списка жертв движка при сносе области). Гасим очередь
   -- ДО движения кареток — геометрия тика должна быть уже согласована.
   R.flush_remorph()
-  R.flush_undo_stamps()
   C.on_tick()
   Docks.on_tick()       -- после C.on_tick: курсоры кареток уже сдвинуты этим тиком
   -- открытые окна груза кареток: игрок перекладывает предметы руками, событий у

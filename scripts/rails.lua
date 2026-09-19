@@ -492,63 +492,83 @@ end
 -- категорий. scl_dir/scl_mirror — состояние сущности в момент снятия чертежа: при
 -- постройке повёрнутого/флипнутого чертежа ремапим стороны в cond_lists/cat_order
 -- трансформом D4 (поворот × зеркало).
--- ── ctrl+z: ручные настройки тайла в undo-стеке ─────────────────────
+-- ── ctrl+z: ручные настройки тайла при откате ───────────────────────
 -- Движок кладёт в undo-стек BlueprintEntity, собранный им самим, — наших полей
 -- (режим, условия, порядок категорий) в нём нет, и ctrl+z возвращал голый рельс.
--- Штатный путь — `LuaUndoRedoStack::set_undo_tag`: доклеиваем те же теги, что и в
--- чертёж, и при откате они приезжают в `event.tags` → apply_blueprint_tags.
 --
--- Штамп откладываем, а не ставим сразу: момент появления undo-пункта относительно
--- нашего события движком не обещан (у сноса ботами он вообще возникает позже —
--- игрок только отдал приказ). Поэтому кладём заявку и пытаемся её приложить каждый
--- тик, пока в свежих пунктах стека не найдётся removed-entity на нашей позиции.
-local UNDO_STAMP_TTL = 600   -- 10 секунд: дольше ждать нет смысла
-local UNDO_SCAN_ITEMS = 3    -- свежие пункты стека; глубже — уже не наш снос
+-- Пробовали штатный `LuaUndoRedoStack::set_undo_tag` в момент сноса — и это тупик:
+-- чтобы дотянуться до стека, нужен ИГРОК, а его в момент сноса может не быть.
+-- Замер в песочнице (/scl-undo-dump): рельс там уходит через `script_raised_destroy`
+-- вообще без `player_index`, при том что undo-пункт у игрока создаётся.
+--
+-- Поэтому настройки снятого тайла кладём на СКЛАД по ключу тайла (снос — всегда наш
+-- код, кто бы его ни инициировал), а отдаём обратно, когда движок реально
+-- восстанавливает рельс откатом: `on_undo_applied`/`on_redo_applied` дают и игрока,
+-- и список действий. Тегами при этом помечаем призрака — оживёт он уже с ними.
+local TRASH_TTL = 60 * 60 * 30   -- 30 минут: дольше undo-стек всё равно не живёт
+local TRASH_MAX = 4096           -- потолок на массовый снос
 
-function R.stamp_undo_later(player_index, node)
-  if not (player_index and node and node.entity and node.entity.valid) then return end
-  local pos = node.entity.position
-  storage.undo_stamps = storage.undo_stamps or {}
-  storage.undo_stamps[#storage.undo_stamps + 1] = {
-    player_index = player_index,
-    x = pos.x, y = pos.y,
-    tags = R.blueprint_tags(node),
-    until_tick = game.tick + UNDO_STAMP_TTL,
-  }
+local function trash()
+  local t = storage.rail_trash
+  if not t then t = {} ; storage.rail_trash = t end
+  return t
 end
 
-local function try_stamp(stamp)
-  local player = game.get_player(stamp.player_index)
-  if not (player and player.valid) then return true end   -- некому — снимаем заявку
-  local stack = player.undo_redo_stack
-  local count = math.min(stack.get_undo_item_count(), UNDO_SCAN_ITEMS)
-  for item_index = 1, count do
-    for action_index, action in pairs(stack.get_undo_item(item_index)) do
-      local target = action.type == "removed-entity" and action.target
-      if target and target.position
-        and math.abs(target.position.x - stamp.x) < 0.01
-        and math.abs(target.position.y - stamp.y) < 0.01 then
-        -- порядок аргументов именно такой: (item_index, action_index, tag_name, tag)
-        for name, value in pairs(stamp.tags) do
-          stack.set_undo_tag(item_index, action_index, name, value)
-        end
-        return true
-      end
+-- Снять настройки тайла на склад. Зовётся из любого пути сноса, до rail_remove.
+function R.trash_put(node)
+  if not node then return end
+  local t = trash()
+  t[key_of(node)] = { tags = R.blueprint_tags(node), tick = game.tick }
+  local count = 0
+  for _ in pairs(t) do count = count + 1 end
+  if count > TRASH_MAX then
+    local deadline = game.tick - TRASH_TTL
+    for key, entry in pairs(t) do
+      if entry.tick < deadline then t[key] = nil end
     end
   end
-  return false
 end
 
-function R.flush_undo_stamps()
-  local stamps = storage.undo_stamps
-  if not (stamps and stamps[1]) then return end
-  local keep = {}
-  for _, stamp in ipairs(stamps) do
-    if not try_stamp(stamp) and game.tick < stamp.until_tick then
-      keep[#keep + 1] = stamp
+-- Вернуть настройки тайла на место. Призрак к моменту вызова уже существует
+-- (проверено в соседнем моде gofarovich-circuit-buttons, где этот же механизм
+-- работает в проде) — откладывать на тик не нужно.
+function R.restore_from_trash(surface_index, position, known_ghost)
+  local key = G.key_of_tile(G.tile_of(position))
+  local entry = trash()[key]
+  if not entry then return end
+  if known_ghost and known_ghost.valid then
+    known_ghost.tags = entry.tags
+    return
+  end
+  local surface = surface_index and game.get_surface(surface_index)
+  if not (surface and surface.valid) then return end
+  local pos = { position.x, position.y }
+  -- обычный откат кладёт призрака: помечаем тегами, оживёт уже с настройками
+  local ghost = surface.find_entities_filtered({ ghost_name = G.RAIL_NAMES, position = pos, limit = 1 })[1]
+  if ghost then
+    ghost.tags = entry.tags
+    return
+  end
+  -- мгновенная постройка (редактор): рельс уже стоит и уже зарегистрирован с
+  -- дефолтами — накатываем сохранённое поверх
+  local node = storage.rails[key]
+  local e = node and node.entity
+  if e and e.valid then
+    R.apply_blueprint_tags(node, entry.tags,
+      G.mask_of_entity(e.name, e.direction, e.mirroring), e.direction, e.mirroring)
+  end
+end
+
+-- Откат И повтор, оба типа действий: undo постройки сносит рельс, redo ставит его
+-- обратно — настройки нужны в обе стороны, не только у removed-entity.
+function R.on_undo_redo(actions)
+  for _, action in pairs(actions or {}) do
+    local target = action.target
+    if target and target.name and G.IS_RAIL[target.name] and target.position
+      and (action.type == "removed-entity" or action.type == "built-entity") then
+      R.restore_from_trash(action.surface_index, target.position)
     end
   end
-  storage.undo_stamps = keep
 end
 
 function R.blueprint_tags(node)
