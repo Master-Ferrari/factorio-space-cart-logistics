@@ -584,7 +584,45 @@ function R.blueprint_tags(node)
   }
 end
 
-local MIRROR_SIDE = { N = "N", S = "S", E = "W", W = "E" }
+local MIRROR_SIDE = { N = "N", S = "S", E = "W", W = "E" }        -- зеркало по горизонтали
+local VMIRROR_SIDE = { N = "S", S = "N", E = "E", W = "W" }       -- зеркало по вертикали
+
+-- Прогнать стороны условий и порядок категорий через преобразование side → side.
+-- Стороны в cond_lists/cat_order МИРОВЫЕ (N/E/S/W), поэтому при повороте или
+-- зеркале тайла их надо двигать вместе с геометрией — иначе условие «сверху → на
+-- восток» после поворота продолжало бы смотреть в старые стороны.
+function R.remap_sides(node, map)
+  if not node then return end
+  if node.cond_lists then
+    local lists = {}
+    for entry, list in pairs(node.cond_lists) do
+      for _, cond in ipairs(list) do
+        if cond.exit then cond.exit = map[cond.exit] or cond.exit end
+      end
+      lists[map[entry] or entry] = list
+    end
+    node.cond_lists = lists
+  end
+  if node.cat_order then
+    for i, entry in ipairs(node.cat_order) do node.cat_order[i] = map[entry] or entry end
+  end
+end
+
+-- Преобразование сторон для того, что движок только что сделал с сущностью.
+-- steps — повороты по часовой (R = 1, shift+R = 3); horizontal/vertical — флип.
+function R.side_map_rotate(steps)
+  local map = {}
+  for _, side in ipairs({ "N", "E", "S", "W" }) do
+    local out = side
+    for _ = 1, steps % 4 do out = G.CW[out] end
+    map[side] = out
+  end
+  return map
+end
+
+function R.side_map_mirror(horizontal)
+  return horizontal and MIRROR_SIDE or VMIRROR_SIDE
+end
 
 -- Заселить теги (event.tags при постройке из бпринта) в свежесозданный node.
 -- built_mask/built_dir/built_mirror — состояние сущности В МОМЕНТ ПОСТРОЙКИ (снятое

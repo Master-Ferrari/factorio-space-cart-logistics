@@ -438,8 +438,17 @@ local function on_transformed(event)
   local node = storage.rails[key]
   if not node then return end
   if node.mode == "manual" then
+    -- геометрию читаем с сущности, а стороны условий двигаем тем же
+    -- преобразованием, которое движок применил к тайлу
     node.manual_mask = G.mask_of_entity(e.name, e.direction, e.mirroring)
+    if event.name == defines.events.on_player_rotated_entity then
+      local steps = ((e.direction - (event.previous_direction or e.direction)) / 4) % 4
+      R.remap_sides(node, R.side_map_rotate(steps))
+    else
+      R.remap_sides(node, R.side_map_mirror(event.horizontal))
+    end
     R.rail_update_around(key)
+    GUI.refresh_key(key)  -- условия сменили стороны, геометрия могла не меняться
   else
     local _, dir, mir = G.spec_of_mask(node.eff_mask)
     e.direction, e.mirroring = dir, mir
