@@ -472,18 +472,23 @@ function R.rail_add(entity)
   UL.refresh_around(surface, tx, ty)
 end
 
-function R.rail_remove(entity)
-  local surface = entity.surface          -- см. rail_add: морф соседей может пересоздать сущности
-  local tx, ty = G.tile_of(entity.position)
+-- Снять узел тайла, не требуя живой сущности: при замене рельса рельсом (fast
+-- replace) движок может убрать старую сущность молча, и цепляться за неё нельзя.
+function R.rail_forget(surface, tx, ty)
   local key = G.key_of_tile(tx, ty)
-  local node = storage.rails[key]
-  if not node then return end
+  if not storage.rails[key] then return end
   storage.rails[key] = nil
   for _, side in ipairs(G.SIDES) do
     R.rail_update(G.neighbor_tile(key, side))
   end
   UL.refresh_around(surface, tx, ty)  -- узел уже снят → подложка уйдёт сама
   if R.on_geometry_changed then R.on_geometry_changed(key) end  -- закрыть GUI тайла
+end
+
+function R.rail_remove(entity)
+  local surface = entity.surface          -- см. rail_add: морф соседей может пересоздать сущности
+  local tx, ty = G.tile_of(entity.position)
+  R.rail_forget(surface, tx, ty)
 end
 
 -- ── blueprint / copy-paste: перенос ручных настроек тайла ───────────

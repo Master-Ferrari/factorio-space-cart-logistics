@@ -74,10 +74,19 @@ local function on_built(event)
   local e = event.entity or event.created_entity
   if not (e and e.valid) then return end
   if IS_RAIL[e.name] then
-    local key = G.key_of_tile(G.tile_of(e.position))
-    if storage.rails[key] then                 -- B3: тайл уже занят рельсом
-      reject_build(event, e, "tile-occupied")
-      return
+    local tx, ty = G.tile_of(e.position)
+    local key = G.key_of_tile(tx, ty)
+    -- Рельс поверх рельса разрешён (общая fast_replace группа, data.lua): старый
+    -- тайл просто уступает место, настройки берутся у НОВОГО — из тегов чертежа,
+    -- а при постройке руками сбрасываются в дефолт. Старые прячем на склад, чтобы
+    -- ctrl+z вернул тайл как был. При замене руками движок снимает старую сущность
+    -- сам (и шлёт on_removed), при скриптовой — нет, поэтому сносим явно.
+    local old_node = storage.rails[key]
+    if old_node then
+      local old = old_node.entity
+      R.trash_put(old_node)
+      R.rail_forget(e.surface, tx, ty)
+      if old and old.valid and old ~= e then old.destroy() end
     end
     -- маску/direction/mirroring снимаем ДО rail_add: auto-морф внутри может заменить сущность
     local built_mask = G.mask_of_entity(e.name, e.direction, e.mirroring)
