@@ -58,6 +58,8 @@ def main():
         film = os.path.join(HERE, "..", "film")
         Image.open(os.path.join(HERE, "out", "sheet.png")).convert("RGB").save(
             os.path.join(film, "data", "frames", "hp2_%s.jpg" % a.film), quality=90)
+        import shutil
+        shutil.copy(os.path.join(HERE, "out", "close.png"), os.path.join(film, "data", "frames", "hp2_%s_close.png" % a.film))
         run([sys.executable, os.path.join(film, "src", "panels.py"), HERE, "A",
              os.path.join(film, "data", "panels", "hp2_%s" % a.film)])
 

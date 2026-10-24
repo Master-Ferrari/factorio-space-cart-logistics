@@ -44,10 +44,10 @@ PLAN_CH = 0.08                       # срез углов в плане
 R_WHEEL, T_WHEEL = 0.29, 0.075
 WHEEL_X, WHEEL_Z = 0.2275, 0.231     # центр колеса: коническая кромка вертикальна у y = ±лезвие
 A_CHEEK = 0.075                      # плоскость щеки от плоскости колеса (палец лежит в ней)
-CHEEK_T = 0.020
+CHEEK_T = 0.014
 CHEEK_HY = 0.385
 STRAP_Y, STRAP_W = 0.11, 0.025
-POCKET_HY = 0.068
+POCKET_HY = 0.066
 BEAD_R = 0.011                       # выштамповка-ребро жёсткости (полукруг в листе)
 RIB_X = (-0.112, -0.056, 0.0, 0.056, 0.112)
 END_S = Vector((0, END_Y - 0.16, -(0.608 - END_Z))).normalized()   # вниз по скату торца (для sy=+1)
@@ -132,7 +132,7 @@ def pocket_frame(sx):
 def pocket_cutter(sx):
     """Карман пружины: тело короба пересекается с пружиной — вырез вдоль её оси, дно-упор у площадки."""
     Q, n, u = pocket_frame(sx)
-    o = hk.hbox((-0.08, -POCKET_HY, -0.050), (0.188, POCKET_HY, 0.25))
+    o = hk.hbox((-0.08, -POCKET_HY, -0.066), (0.172, POCKET_HY, 0.25))
     M = Matrix(((n.x, 0, u.x, Q.x), (n.y, 1, u.y, Q.y), (n.z, 0, u.z, Q.z), (0, 0, 0, 1)))
     hk.transform(o, M)
     hk.bevel(o, 0.012, 4, 30)
@@ -145,7 +145,18 @@ def in_pocket(c, sx):
     return -0.09 < d.dot(n) < 0.205 and abs(d.y) < POCKET_HY + 0.003 and d.dot(u) < 0.02
 
 
-GRIP_V = (0.088, 0.165)          # выемка хвата: от верхней кромки торца вниз по скату (длина по скату)
+GRIP_V = (0.050, 0.118)          # выемка хвата: от верхней кромки торца вниз по скату (длина по скату)
+GRIP_HW, GRIP_CH = 0.098, 0.022   # полуширина верхнего края, высота фаски верхних углов (по скату)
+K_UP, K_DN = 0.673, 0.82         # наклоны рёбер грани торца в её плоскости: верхние фаски (шатёр), нижние скаты
+
+
+def grip_hw(v):
+    """Контур выемки = контур грани торца, отступленный внутрь: верх || верхней кромке, фаски || фаскам грани,
+    бока || нижним скатам грани (сходятся книзу), ровный низ."""
+    t = v - GRIP_V[0]
+    if t < GRIP_CH:
+        return GRIP_HW + K_UP * t
+    return GRIP_HW + K_UP * GRIP_CH - K_DN * (t - GRIP_CH)
 
 
 def end_face_pt(sy, x, v, w):
@@ -157,25 +168,25 @@ def end_face_pt(sy, x, v, w):
 
 
 def grip_cutter(sy):
-    """Выемка хвата: многоугольник из прямых — фаски верхних углов, бока сходятся книзу, ровный низ;
-    бока скошены как стенки короба; нижняя наружная кромка уходит в грань скруглением R 0.09."""
+    """Выемка хвата: вырез в листе — верхняя стенка глубокая, стенки скошены как стенки короба,
+    дно выходит к нижней кромке скруглением R 0.09 (гибка + фреза)."""
     v0, v1 = GRIP_V
     R = 0.09
     H = v1 - v0
+    vs_ = sorted(set([v0 + H * k / 20 for k in range(21)] + [v0 + GRIP_CH]))
     rings = []
-    N = 16
-    for k in range(N + 1):
-        v = v0 + H * k / N
-        f = (v - v0) / H
-        hw = 0.150 - 0.028 * f                                     # бока сходятся книзу
-        if v - v0 < 0.022:                                         # фаски верхних углов
-            hw -= (0.022 - (v - v0))
+    for v in vs_:
+        hw = grip_hw(v)
         x = v1 - v                                                 # от нижней кромки вверх
         depth = R - math.sqrt(max(R * R - x * x, 0.0)) if x < R else R
-        dd = max(min(depth, 0.040), 0.0015)
+        dd = max(min(depth, 0.032), 0.0015)
         sl = 0.45 * dd                                             # скос боковых стенок
-        rings.append([end_face_pt(sy, -hw - 0.01, v, 0.03), end_face_pt(sy, hw + 0.01, v, 0.03),
+        rings.append([end_face_pt(sy, -hw - 0.012, v, 0.03), end_face_pt(sy, hw + 0.012, v, 0.03),
                       end_face_pt(sy, hw - sl, v, -dd), end_face_pt(sy, -hw + sl, v, -dd)])
+    # верхняя стенка — по нормали грани
+    top = [end_face_pt(sy, -GRIP_HW - 0.012, v0 - 0.0005, 0.03), end_face_pt(sy, GRIP_HW + 0.012, v0 - 0.0005, 0.03),
+           end_face_pt(sy, GRIP_HW - 0.0145, v0 - 0.0005, -0.032), end_face_pt(sy, -GRIP_HW + 0.0145, v0 - 0.0005, -0.032)]
+    rings = [top] + rings
     bm = bmesh.new()
     vs = [[bm.verts.new(q) for q in r] for r in rings]
     for a, b in zip(vs, vs[1:]):
@@ -192,48 +203,53 @@ def in_grip(c):
     d = c - Vector((0, sy * DECK_HY, Z_TOP))
     dn = Vector((0, sy * END_S.y, END_S.z))
     v, w = d.dot(dn), d.dot(nr)
-    return GRIP_V[0] - 0.004 < v < GRIP_V[1] - 0.03 and abs(c.x) < 0.15 and w < -0.006
+    return GRIP_V[0] - 0.004 < v < GRIP_V[1] - 0.025 and abs(c.x) < grip_hw(min(max(v, GRIP_V[0]), GRIP_V[1])) and w < -0.005
 
 
-def capsule_chain(pts, r):
-    """Ребро-выштамповка по ломаной на поверхности: цилиндры + сферы в узлах (сольются ремешем)."""
-    parts = []
-    pts = [Vector(q) for q in pts]
-    for a, b in zip(pts, pts[1:]):
-        parts.append(hk.cyl(a, b - a, r, (b - a).length, segs=24))
-    for q in pts:
-        parts.append(hk.lathe([(0, -r)] + [(r * math.sin(math.pi * k / 12), -r * math.cos(math.pi * k / 12))
-                                           for k in range(1, 12)] + [(0, r)], q, (0, 0, 1), 24))
-    return parts
+DOOR_HX, DOOR_HY, DOOR_T = 0.150, 0.138, 0.010
+RIB_XS = (-0.120, -0.072, -0.024, 0.024, 0.072, 0.120)
+RIB_W0, RIB_W1, RIB_H, RIB_HY = 0.032, 0.020, 0.015, 0.108
 
 
-def beads():
-    """ДНК короба: выштамповки листа. Продольные рёбра крыши переходят через гиб на скаты торцов и
-    кончаются над выемкой; поперечные рёбра бокового ската обрамляют карман пружины."""
-    parts = []
-    vend = GRIP_V[0] - 0.035
-    for x in RIB_X:
-        chain = [end_face_pt(-1, x, vend, 0.0), end_face_pt(-1, x, 0.012, 0.0), (x, -DECK_HY + 0.004, Z_TOP - 0.001),
-                 (x, DECK_HY - 0.004, Z_TOP - 0.001), end_face_pt(1, x, 0.012, 0.0), end_face_pt(1, x, vend, 0.0)]
-        parts += capsule_chain(chain, BEAD_R)
-    for y in (-STRAP_Y, STRAP_Y):
-        for sx in (-1, 1):
-            chain = [(sx * (HEX_HW + 0.001), y, HEX_Z0 + 0.004), (sx * (HEX_HW + 0.001), y, HEX_Z1 - 0.002),
-                     (sx * (BOX_HW + 0.008), y, Z_TOP - 0.008)]
-            parts += capsule_chain(chain, BEAD_R * 1.25)
-    return parts
+def build_door(M):
+    """Дверь-люк на площадке: штампованная плита, рёбра жёсткости выдавлены в ней (трапеция, сбег 45° на концах).
+    Рёбра — только на двери; плита и рёбра сварены одним мелким ремешем (галтели штампа)."""
+    z0 = Z_TOP - 0.004
+    z1 = z0 + DOOR_T
+    poly = hk.chamfer_poly([(-DOOR_HX, -DOOR_HY), (DOOR_HX, -DOOR_HY), (DOOR_HX, DOOR_HY), (-DOOR_HX, DOOR_HY)], 0.022)
+    plate = hk.hull([(x, y, z) for x, y in poly for z in (z0, z1)])
+    hk.bevel(plate, 0.003, 2, 30)
+    parts = [plate]
+    for x in RIB_XS:
+        pts = []
+        for z, w, hy in ((z1 - 0.002, RIB_W0 / 2, RIB_HY), (z1 + RIB_H, RIB_W1 / 2, RIB_HY - RIB_H)):
+            for sx_ in (-1, 1):
+                for sy_ in (-1, 1):
+                    pts.append((x + sx_ * w, sy_ * hy, z))
+        r = hk.hull(pts)
+        hk.bevel(r, 0.0035, 2, 20)
+        parts.append(r)
+    d = hk.join(parts, 'door')
+    hk.rs(d, 0.0012, it=2)
+    return d
 
 
-def belt():
-    """Отбортовка-фальц по самому широкому поясу: лист шатра загнут наружу, на нём короб держит форму."""
-    pl = [((0, 0, HEX_Z1 - 0.006), (0, 0, 1)), ((0, 0, HEX_Z0 + 0.006), (0, 0, -1))]
-    for sx in (-1, 1):
-        pl.append(((sx * (HEX_HW + 0.010), 0, 0), (sx, 0, 0)))
-    for co, no in end_planes():                       # по контуру торцов, на 10 мм наружу
-        pl.append((tuple(Vector(co) + Vector(no).normalized() * 0.010), no))
+def pocket_visor(sx):
+    """Козырёк над карманом пружины: лист верхнего ската шатра отогнут над окном кармана и прикрывает его верх;
+    пружина видна в щели под козырьком. Тело по плоскостям, сварится с коробом ремешем."""
+    hw = POCKET_HY + 0.014
+    P = Vector((sx * BOX_HW, 0, Z_TOP))
+    ds = Vector((sx * (HEX_HW - BOX_HW), 0, HEX_Z1 - Z_TOP)).normalized()     # вниз по скату наружу
+    nu = Vector((sx * (Z_TOP - HEX_Z1), 0, HEX_HW - BOX_HW)).normalized()     # нормаль ската наружу
+    pl = [((0, hw, 0), (0, 1, 0)), ((0, -hw, 0), (0, -1, 0)),
+          (tuple(P + nu * 0.005), tuple(nu)), (tuple(P - nu * 0.012), tuple(-nu)),
+          (tuple(P - ds * 0.004), tuple(-ds)), (tuple(P + ds * VISOR_L), tuple(ds))]
     o = hk.polytope(pl)
-    hk.bevel(o, 0.009, 4, 30)
-    return o
+    hk.bevel(o, 0.004, 3, 30)
+    return [o]
+
+
+VISOR_L = 0.062                    # козырёк по скату от кромки площадки (скат 0.130)
 
 
 def lug(sx, sy):
@@ -252,24 +268,22 @@ def lug(sx, sy):
 
 def build_body(M):
     hexo, box = shell_parts()
-    hk.bevel(hexo, 0.016, 5, 25)
-    hk.bevel(box, 0.010, 3, 25)
+    hk.bevel(hexo, 0.009, 4, 25)                 # гиб листа шатра — один радиус
+    hk.bevel(box, 0.007, 3, 25)
     body = hk.boolean(hexo, box, 'UNION')
     print("body: union", len(body.data.polygons))
-    body = hk.boolean(body, belt(), 'UNION')
-    print("body: belt", len(body.data.polygons))
     for sx in (-1, 1):
         body = hk.boolean(body, pocket_cutter(sx))
         print("body: pocket", len(body.data.polygons))
     for sy in (-1, 1):
         body = hk.boolean(body, grip_cutter(sy))
         print("body: grip", len(body.data.polygons))
-    parts = [body] + beads()
+    parts = [body] + pocket_visor(-1) + pocket_visor(1)
     for sx in (-1, 1):
         for sy in (-1, 1):
             parts.append(lug(sx, sy))
     body = hk.join(parts, 'body')
-    hk.rs(body, VOX, it=4)
+    hk.rs(body, VOX, it=2)
 
     def cls(c, nr):
         if in_pocket(c, -1) or in_pocket(c, 1) or in_grip(c):
@@ -284,11 +298,11 @@ def build_pins(M):
     collars, plungers = [], []
     for sy in (-1, 1):
         nr = Vector((0, -sy * END_S.z, END_S.y))
-        for x in (-0.07, 0.07):
-            base = end_face_pt(sy, x, 0.238, -0.004)
-            collars.append(hk.lathe([(0, 0), (0.022, 0), (0.022, 0.010), (0.018, 0.015), (0, 0.015)], base, nr, 48))
-            prof = [(0, 0), (0.011, 0), (0.011, 0.022)] + [
-                (0.011 * math.cos(math.pi / 2 * k / 6), 0.022 + 0.011 * math.sin(math.pi / 2 * k / 6)) for k in range(1, 7)]
+        for x in (-0.075, 0.075):
+            base = end_face_pt(sy, x, 0.185, -0.004)
+            collars.append(hk.lathe([(0, 0), (0.031, 0), (0.031, 0.012), (0.026, 0.018), (0, 0.018)], base, nr, 48))
+            prof = [(0, 0), (0.016, 0), (0.016, 0.026)] + [
+                (0.016 * math.cos(math.pi / 2 * k / 6), 0.026 + 0.016 * math.sin(math.pi / 2 * k / 6)) for k in range(1, 7)]
             plungers.append(hk.lathe(prof, base, nr, 48))
     c = hk.join(collars, 'pin_collars')
     hk.rs(c, VOX_FINE * 0.7, it=2)
@@ -326,11 +340,11 @@ def wheel_profile():
     """Токарный профиль (r, a): a — по оси внутрь. Обод с конусом 45° изнутри (внизу колеса он вертикален и
     обжимает лезвие), диск с проточкой, ступица. Галтели заданы явно: тело не ремешится, шейдинг аналитический."""
     R, h = R_WHEEL, T_WHEEL / 2
-    h0 = 0.0275                                                     # наружная грань как была; утолщение — внутрь
+    h0 = 0.012                                                     # наружная грань как была; утолщение — внутрь
     pts = [(0, -0.030), (0.027, -0.030), (0.036, -0.021), (0.036, -0.011), (0.200, -0.011), (0.206, -0.016),
-           (0.214, -0.016), (0.220, -0.011), (0.226, -0.011), (0.230, -h0), (R, -h0), (R, 0.0), (R - 0.0475, 0.0475),
+           (0.214, -0.016), (0.220, -0.011), (0.226, -0.011), (0.230, -h0), (R + h0, -h0), (R - 0.0475, 0.0475),
            (0.228, 0.0475), (0.218, 0.012), (0.058, 0.012), (0.046, 0.024), (0.046, 0.056), (0, 0.056)]
-    radii = [0, 0.004, 0.004, 0.004, 0.003, 0.002, 0.002, 0.003, 0.003, 0.003, 0.009, 0.003, 0.004,
+    radii = [0, 0.004, 0.004, 0.004, 0.003, 0.002, 0.002, 0.003, 0.003, 0.003, 0.004, 0.004,
              0.003, 0.004, 0.005, 0.003, 0.003, 0]
     return hk.round_profile(pts, radii)
 
@@ -343,25 +357,22 @@ def build_wheel(sx, M):
         r = ((c - C) - n * (c - C).dot(n)).length
         return 0 if r > 0.225 or r < 0.052 else 1
     paint(w, [M["rim"], M["web"]], cls)
-    bolts = []
-    for k in range(6):
-        a = 2 * math.pi * k / 6
-        p = C + (Vector((0, 1, 0)) * math.cos(a) + n.cross(Vector((0, 1, 0))) * math.sin(a)) * 0.078
-        b = hk.cyl(p - n * 0.009, -n, 0.009, 0.008, segs=6)
-        hk.bevel(b, 0.0015, 1, 30)
-        bolts.append(b)
-    nut = hk.cyl(C - n * 0.028, -n, 0.030, 0.020, segs=8, ref=(0, 1, 0), phase=math.pi / 8)
-    hk.bevel(nut, 0.003, 2, 30)
-    cap = hk.lathe([(0, 0), (0.017, 0), (0.017, 0.006), (0.012, 0.010), (0, 0.011)], C - n * 0.047, -n, 32)
+    # колпак ступицы — тело вращения (колесо осесимметрично: любой поворот выглядит одинаково)
+    nut = hk.lathe(hk.round_profile([(0, 0), (0.032, 0), (0.032, 0.014), (0.024, 0.022), (0.018, 0.022),
+                                     (0.018, 0.030), (0, 0.030)], [0, 0.002, 0.003, 0.003, 0.002, 0.003, 0]),
+                   C - n * 0.028, -n, 96)
     washer = hk.cyl(C + n * 0.055, n, 0.040, A_CHEEK - CHEEK_T / 2 - 0.054, segs=64)
     hk.bevel(washer, 0.002, 2, 30)
-    return w, hk.join(bolts, 'wheel_bolts'), hk.join([nut, cap], 'hub_nut'), washer
+    return w, nut, washer
 
 
 # ---------------------------------------------------------------- щека
+CHEEK_TOP = [(-0.385, 0.165), (-0.275, 0.165), (-0.215, 0.235), (-0.150, 0.272), (0.150, 0.272), (0.215, 0.235),
+             (0.275, 0.165), (0.385, 0.165)][::-1]     # ломаный низкий горб над колесом, крылья
+
+
 def cheek_outline():
-    p = [(-CHEEK_HY, 0.0), (CHEEK_HY, 0.0), (CHEEK_HY, 0.17), (0.28, 0.17), (0.18, 0.262), (-0.18, 0.262),
-         (-0.28, 0.17), (-CHEEK_HY, 0.17)]
+    p = [(-CHEEK_HY, 0.0), (CHEEK_HY, 0.0)] + CHEEK_TOP[::-1]
     return p
 
 
@@ -378,11 +389,11 @@ def build_cheek(sx, M):
     hk.bevel(plate, 0.004, 2, 30)
     parts = [plate]
     # отбортовка верхней кромки внутрь (к корпусу): жёсткость листа + упор для пружины
-    top = [(CHEEK_HY, 0.17), (0.28, 0.17), (0.18, 0.262), (-0.18, 0.262), (-0.28, 0.17), (-CHEEK_HY, 0.17)]
+    top = CHEEK_TOP
     for (y0, s0), (y1, s1) in zip(top, top[1:]):
-        q = [plane_pt(sx, y, s, A_CHEEK + CHEEK_T / 2 - 0.004 + d) for (y, s) in ((y0, s0), (y1, s1))
-             for d in (0.0, 0.030)]
-        q += [p - u * 0.013 for p in q]
+        q = [plane_pt(sx, y, s, A_CHEEK + CHEEK_T / 2 - 0.003 + d) for (y, s) in ((y0, s0), (y1, s1))
+             for d in (0.0, 0.022)]
+        q += [p - u * 0.010 for p in q]
         f = hk.hull(q)
         parts.append(f)
     # низ свёрнут в петлю на пальце — два кулака
@@ -394,7 +405,7 @@ def build_cheek(sx, M):
     # гнездо пружины на отбортовке
     parts.append(hk.cyl(plane_pt(sx, 0, SPRING_S, A_CHEEK), n, 0.045, CHEEK_T / 2 + 0.015, segs=64))
     ch = hk.join(parts, 'cheek')
-    hk.rs(ch, VOX_FINE, it=3)
+    hk.rs(ch, VOX_FINE, it=1)
     # таблички на крыльях щеки (обе стороны крыла): оранжевая + стальная, на заклёпках
     tabs, plates, rivets = [], [], []
     for s, face in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
@@ -427,29 +438,38 @@ def build_pin(sx, M):
 
 
 def build_spring(sx, M):
-    """Пружина сжатия вдоль оси колеса: от гнезда на щеке до упора кармана; крайние витки поджаты."""
+    """Пружина как на драфте: 2 витка, квадратная проволока 0.03, наружный диаметр 0.11, высота 0.15;
+    концы поджаты (по четверти витка без шага)."""
     C, n, u = frame(sx)
     Q = C + n * (A_CHEEK + CHEEK_T / 2 + 0.015) + u * SPRING_S
-    Rc, wire, L, turns = 0.031, 0.0075, 0.175, 5.0
+    a, L, turns = 0.030, 0.150, 2.0
+    Rc = 0.110 / 2 - a / 2
     b1 = Vector((0, 1, 0))
     b2 = n.cross(b1)
-    pts = []
-    N = int(turns * 32)
+    N = int(turns * 48)
+    e = 0.25
+    bm = bmesh.new()
+    rings = []
     for k in range(N + 1):
-        t = k / N
-        ang = 2 * math.pi * turns * t
-        # поджатые концы: первый и последний полувиток почти без шага
-        tt = t * turns
-        if tt < 0.6:
-            h = wire * tt / 0.6
-        elif tt > turns - 0.6:
-            h = L - wire - wire * (turns - tt) / 0.6 + wire
+        tt = turns * k / N
+        if tt < e:
+            h = 0.0
+        elif tt > turns - e:
+            h = L - a
         else:
-            h = wire + (L - 2 * wire) * (tt - 0.6) / (turns - 1.2)
-        pts.append(Q + n * (h + 0.004) + (b1 * math.cos(ang) + b2 * math.sin(ang)) * Rc)
-    sp = hk.sweep(pts, wire, 16)
-    hk.rs(sp, 0.0012, it=2)
-    seat = hk.cyl(Q + n * (L + 0.004), n, 0.037, 0.008, segs=48)       # упорная шайба на дне кармана
+            h = (L - a) * (tt - e) / (turns - 2 * e)
+        ang = 2 * math.pi * tt
+        r = b1 * math.cos(ang) + b2 * math.sin(ang)
+        c = Q + n * (h + 0.004 + a / 2) + r * Rc
+        rings.append([bm.verts.new(c + r * dr * a / 2 + n * dz * a / 2) for dr, dz in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+    for p, q in zip(rings, rings[1:]):
+        for i in range(4):
+            bm.faces.new([p[i], p[(i + 1) % 4], q[(i + 1) % 4], q[i]])
+    bm.faces.new(rings[0][::-1])
+    bm.faces.new(rings[-1])
+    sp = hk.obj_from_bm(bm, 'spring')
+    hk.bevel(sp, 0.004, 2, 60)
+    seat = hk.cyl(Q + n * (L + 0.004), n, 0.058, 0.008, segs=64)       # упорная шайба на дне кармана
     hk.bevel(seat, 0.002, 2, 30)
     return sp, seat
 
@@ -515,6 +535,7 @@ def main():
     out.append(finish(c, "pogo_collars", coll, body, M["rubber"]))
     out.append(finish(p, "pogo_pins", coll, body, M["brass"]))
     out.append(finish(build_bumpers(M), "bumpers", coll, body, M["steel"]))
+    out.append(finish(build_door(M), "door", coll, body, M["lid"]))
 
     for sx, side in ((-1, "L"), (1, "R")):
         C, n, u = frame(sx)
@@ -528,14 +549,13 @@ def main():
         out.append(finish(tabs, "tabs_" + side, coll, cheek, M["orange"], origin=P, angle=40))
         out.append(finish(plates, "tab_plates_" + side, coll, cheek, M["plate"], origin=P, angle=40))
         out.append(finish(rivets, "rivets_" + side, coll, cheek, M["steel"], origin=P))
-        w, bolts, nut, washer = build_wheel(sx, M)
+        w, nut, washer = build_wheel(sx, M)
         wheel = finish(w, "wheel_" + side, coll, cheek, origin=C, angle=30)                     # крутится вокруг n
         out.append(wheel)
-        out.append(finish(bolts, "wheel_bolts_" + side, coll, wheel, M["steel"], origin=C, angle=40))
-        out.append(finish(nut, "hub_nut_" + side, coll, wheel, M["brass"], origin=C, angle=40))
+        out.append(finish(nut, "hub_nut_" + side, coll, wheel, M["brass"], origin=C))
         out.append(finish(washer, "washer_" + side, coll, cheek, M["brass"], origin=C, angle=40))
         sp, seat = build_spring(sx, M)
-        out.append(finish(sp, "spring_" + side, coll, body, M["brass"]))
+        out.append(finish(sp, "spring_" + side, coll, body, M["brass"], angle=50))
         out.append(finish(seat, "spring_seat_" + side, coll, body, M["brass"], angle=40))
 
     report(out)
