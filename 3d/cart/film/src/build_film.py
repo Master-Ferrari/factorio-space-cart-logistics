@@ -3,7 +3,7 @@
   index_full.html — листы в полном разрешении, слайды автора и результатов попеременно;
   index_sync.html — синхрон: слева реплика автора с рисунками, справа игровой масштаб + модель E-W (256 и 64 ×4).
 """
-import html, json, os, shutil
+import hashlib, html, json, os, shutil
 from PIL import Image
 from timeline import STEPS, FINAL
 
@@ -29,7 +29,7 @@ def put(p, jpeg=True):
         p_src = src_path(path)
     else:
         p_src = src_path(p)
-    name = "%03d_%s" % (len(done), os.path.basename(p_src))
+    name = "%s_%s" % (hashlib.sha1(p.encode("utf-8")).hexdigest()[:8], os.path.basename(p_src))  # стабильно при дописывании шагов
     im = Image.open(p_src)
     if crop:
         w, h = im.size
@@ -129,7 +129,8 @@ for st in STEPS:
     body = "".join(img(put(p), "sheet", r["title"]) for p in r["sheets"])
     s1.append('<section class="slide"><div class="who you">Claude</div><h2>%s</h2><p class="note">%s</p>%s</section>'
               % (html.escape(r["title"]), html.escape(r.get("note", "")), body))
-s1.append('<section class="slide"><div class="who me">автор</div><pre class="say">%s</pre></section>' % html.escape(FINAL))
+if FINAL:
+    s1.append('<section class="slide"><div class="who me">автор</div><pre class="say">%s</pre></section>' % html.escape(FINAL))
 open(os.path.join(OUT, "index_full.html"), "w", encoding="utf-8").write(page("Каретка — поиск формы", "".join(s1), "полные листы"))
 
 # ── версия 2: синхрон ──
@@ -150,7 +151,8 @@ for st in STEPS:
         right += '<p class="cap">игровой масштаб · обзор концептов</p>' + img(put(r["overview"]), "ov")
     s2.append('<section class="slide"><div class="sync"><div class="left"><div class="who me">автор</div>%s</div>'
               '<div class="right">%s</div></div></section>' % (user_block(st["user"]), right))
-s2.append('<section class="slide"><div class="who me">автор</div><pre class="say">%s</pre></section>' % html.escape(FINAL))
+if FINAL:
+    s2.append('<section class="slide"><div class="who me">автор</div><pre class="say">%s</pre></section>' % html.escape(FINAL))
 open(os.path.join(OUT, "index_sync.html"), "w", encoding="utf-8").write(page("Каретка — синхрон", "".join(s2), "реплика ↔ результат"))
 
 tot = sum(os.path.getsize(os.path.join(OUT, "img", f)) for f in os.listdir(os.path.join(OUT, "img")))
