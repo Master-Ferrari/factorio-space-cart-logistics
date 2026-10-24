@@ -227,6 +227,13 @@ def close_sheet(key):
     rows.append(extra)
     rows.append([panel(fit_h(Image.open(os.path.join(REN, "%s_close_zebra_%s.png" % (key, nm))).convert("RGBA"), 620),
                        "hp2, зебра: " + nm) for nm in ("wheel", "end")])
+    top = os.path.join(REN, "%s_close_mc_top_end.png" % key)
+    ref = os.path.join(HERE, "..", "film", "data", "images", "21.png")
+    if os.path.exists(top):
+        row = [panel(fit_h(Image.open(top).convert("RGBA"), 620), "hp2, matcap: торец сверху (Top)")]
+        if os.path.exists(ref):
+            row.append(panel(fit_h(Image.open(ref).convert("RGBA"), 620), "рисунок автора 21: ребро выемки"))
+        rows.append(row)
     rr = []
     for row in rows:
         W = sum(p.width for p in row) + 12 * (len(row) - 1)
