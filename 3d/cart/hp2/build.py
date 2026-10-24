@@ -318,7 +318,7 @@ def build_visor_rivets(M):
 
 
 LUG_T, NUT_T = 0.020, 0.010
-BUMP_Y, BUMP_Z = 0.382, 0.236      # труба бампера: ниже и дальше, чтобы гайка пальца её не касалась
+BUMP_Y, BUMP_Z = 0.402, 0.236      # труба бампера: проход 8 — на 20 мм наружу (треть сдвига прохода 6)
 
 
 def lug(sx, sy):
@@ -383,11 +383,8 @@ def build_pins(M):
 
 
 def arc_y(x):
-    """Ось дуги бампера: парабола + крупный несимметричный прогиб внутрь (следы многих ударов о соседа)."""
-    return BUMP_Y + 0.045 * (1 - (x / 0.215) ** 2) - BUMP_BEND * math.exp(-((x - BUMP_BX) / 0.085) ** 2)
-
-
-BUMP_BEND, BUMP_BX = 0.022, -0.045
+    """Ось дуги бампера: ровная парабола (вмятины — на текстуре)."""
+    return BUMP_Y + 0.045 * (1 - (x / 0.215) ** 2)
 
 
 def catmull(pts, n=8):
@@ -413,10 +410,47 @@ def ball(c, r):
 
 
 
+def sweep_flare(path, rad, segs=40):
+    """Труба по кривой в плоскости x = 0 с переменным сечением: rad(t) -> (rx, rn) — полуось вдоль X и по нормали.
+    Расширение вдоль X у концов — кованый переход шеи в дугу и в лапу без видимого стыка."""
+    P = [Vector(p) for p in path]
+    L = [0.0]
+    for a, b in zip(P, P[1:]):
+        L.append(L[-1] + (b - a).length)
+    X = Vector((1, 0, 0))
+    bm = bmesh.new()
+    rings = []
+    for i, p in enumerate(P):
+        t = (P[min(i + 1, len(P) - 1)] - P[max(i - 1, 0)]).normalized()
+        nn = t.cross(X).normalized()
+        rx, rn = rad(L[i] / L[-1])
+        rings.append([bm.verts.new(p + X * (rx * math.cos(2 * math.pi * k / segs)) + nn * (rn * math.sin(2 * math.pi * k / segs)))
+                      for k in range(segs)])
+    for a, b in zip(rings, rings[1:]):
+        for k in range(segs):
+            bm.faces.new([a[k], a[(k + 1) % segs], b[(k + 1) % segs], b[k]])
+    bm.faces.new(rings[0][::-1])
+    bm.faces.new(rings[-1])
+    return hk.obj_from_bm(bm, 'neck')
+
+
+NECK_R = 0.030                     # шея — та же труба, что дуга
+
+
+def neck_rad(t):
+    """Сечение шеи вдоль пути: у дуги раздаётся вдоль X (галтель ковки), в середине — круглая труба,
+    у днища расплющена в лапу."""
+    fa = math.exp(-(t / 0.11) ** 2)                       # переход в дугу
+    fb = math.exp(-((1 - t) / 0.15) ** 2)                 # переход в лапу
+    rx = NECK_R + 0.003 + 0.030 * fa + 0.024 * fb
+    rn = NECK_R + 0.003 - 0.002 * fa - 0.014 * fb
+    return rx, rn
+
+
 def build_bumpers(M):
-    """Бампер — жертвенный металл, одна кованая деталь: дуга из трубы r 30 с загнутыми назад концами и две
-    гусиные шеи из той же трубы, поднятые к днищу и расплющенные в лапы под болты; всё сварено одним ремешем
-    (плавные переходы). Дуга прогнута и лоб приплюснут — следы многих ударов о соседа."""
+    """Бампер — жертвенный металл, одна кованая деталь: ровная дуга из трубы r 30 с загнутыми назад концами и одна
+    шея по центру из той же трубы — раздаётся галтелью из дуги, поднимается к днищу и расплющивается в лапу;
+    всё сварено одним ремешем, стыков не видно."""
     out = []
     for sy in (-1, 1):
         parts = []
@@ -427,46 +461,20 @@ def build_bumpers(M):
         parts.append(hk.sweep(catmull(path, 6), 0.030, 40))
         for e in (path[0], path[-1]):
             parts.append(ball(e, 0.030))
-        for x0 in (-0.062, 0.062):
-            y0 = arc_y(x0)
-            neck = [(x0, y0, BUMP_Z), (x0, y0 - 0.030, BUMP_Z + 0.022), (x0 * 0.9, y0 - 0.060, BUMP_Z + 0.062),
-                    (x0 * 0.8, 0.345, Z_BOT - 0.004)]
-            neck = [(x, sy * y, z) for x, y, z in neck]
-            parts.append(hk.sweep(catmull(neck, 8), 0.026, 32))
-            parts.append(ball(neck[0], 0.034))                           # наплыв сварки / ковки в месте гиба
-            # лапа: конец шеи расплющен под два болта
-            fx = x0 * 0.8
-            foot = [(fx + dx, sy * y, z) for dx in (-0.032, 0.032) for y in (0.305, 0.385) for z in (Z_BOT - 0.016, Z_BOT + 0.002)]
-            f = hk.hull(foot)
-            hk.bevel(f, 0.008, 3, 30)
-            parts.append(f)
+        y0 = arc_y(0.0)
+        neck = [(0, y0 - 0.004, BUMP_Z), (0, y0 - 0.034, BUMP_Z + 0.010), (0, y0 - 0.062, BUMP_Z + 0.042),
+                (0, 0.372, Z_BOT - 0.030), (0, 0.346, Z_BOT - 0.014)]
+        neck = [(x, sy * y, z) for x, y, z in neck]
+        parts.append(sweep_flare(catmull(neck, 10), neck_rad))
+        # лапа: конец шеи расплющен в плиту под днищем
+        foot = [(dx, sy * y, z) for dx in (-0.050, 0.050) for y in (0.300, 0.385) for z in (Z_BOT - 0.016, Z_BOT + 0.002)]
+        f = hk.hull(foot)
+        hk.bevel(f, 0.008, 3, 30)
+        parts.append(f)
         b = hk.join(parts, 'bumper')
-        hk.rs(b, VOX_FINE, it=6)
-        dent(b, sy)
+        hk.rs(b, VOX_FINE, it=8)
         out.append(b)
     return hk.join(out, 'bumpers')
-
-
-def dent(obj, sy):
-    """Приплюснутый лоб: вершины лобовой стороны дуги сдвигаются к оси трубы (крупно, без мелких вмятин)."""
-    me = obj.data
-    for v in me.vertices:
-        c = v.co
-        if abs(c.x) > 0.23 or c.z < BUMP_Z - 0.04 or c.z > BUMP_Z + 0.04:
-            continue
-        ya = arc_y(c.x)
-        out_ = sy * c.y - ya                                             # насколько вершина впереди оси трубы
-        if out_ <= 0:
-            continue
-        # лоб приплюснут на 10 мм по широкому участку и чуть вогнут в месте прогиба; к концам сходит на нет
-        lim = 0.030 - 0.010 * max(0.0, 1 - (c.x / 0.20) ** 2)
-        y_new = min(out_, lim)
-        y_new -= 0.005 * math.exp(-((c.x - BUMP_BX) / 0.07) ** 2) * min(out_ / 0.02, 1.0)
-        c.y = sy * (ya + max(y_new, 0.004))
-    me.update()
-    m = obj.modifiers.new('sm', 'SMOOTH')
-    m.factor, m.iterations = 0.5, 2
-    hk.realize(obj)
 
 
 # ---------------------------------------------------------------- колесо

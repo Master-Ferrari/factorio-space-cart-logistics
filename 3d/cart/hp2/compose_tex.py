@@ -1,0 +1,91 @@
+# -*- coding: utf-8 -*-
+"""Лист текстур hp2: рендеры с материалами (ключ «T», render_tex.py) поверх спрайтов тайла.
+
+Запуск (системный python):  python compose_tex.py   ->  out/sheet_tex.png
+"""
+
+import json
+import os
+import sys
+
+from PIL import Image, ImageDraw
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "common"))
+sys.path.insert(0, HERE)
+import compose as C  # noqa: E402
+import scl3d as K  # noqa: E402
+
+REF22 = os.path.join(HERE, "..", "film", "data", "images", "22.png")
+KEY = "T"
+DARK = (22, 24, 26, 255)
+
+
+def row(parts, gap=12):
+    W = sum(p.width for p in parts) + gap * (len(parts) - 1)
+    R = Image.new("RGBA", (W, max(p.height for p in parts)), DARK)
+    x = 0
+    for p in parts:
+        R.alpha_composite(p, (x, 0))
+        x += p.width + gap
+    return R
+
+
+def tile_x4():
+    spr = Image.open(C.TILE_SPRITE).convert("RGBA")
+    return C.nearest(C.on_bg(spr), 4)
+
+
+def main():
+    with open(os.path.join(C.REN, "frames.json"), encoding="utf-8") as f:
+        frames = json.load(f)
+    field64, _, _ = C.game_view(KEY, "field", frames, K.PX_GAME)
+    field256, _, fr256 = C.game_view(KEY, "field", frames, K.PX_RENDER)
+    ring64, _, _ = C.game_view(KEY, "ring32", frames, K.PX_GAME)
+    x0, y0 = fr256.px(-0.55, 0.55, 0)
+    x1, y1 = fr256.px(3.55, -1.75, 0)
+    crop = field256.crop((int(x0), int(y0), int(x1), int(y1)))
+    f2 = C.nearest(field64, 2)
+    r2 = C.nearest(ring64, 2)
+    hero = Image.open(os.path.join(C.REN, "%s_hero.png" % KEY)).convert("RGBA")
+    cp = Image.open(os.path.join(C.REN, "%s_close_persp.png" % KEY)).convert("RGBA")
+    cg = Image.open(os.path.join(C.REN, "%s_close_game.png" % KEY)).convert("RGBA")
+
+    blocks = [
+        row([C.panel(f2, "Игровой масштаб с материалами: 64 px/тайл, ×2 nearest",
+                     "прямые и поезд с двумя поворотами; подложка — спрайт тайла"),
+             C.panel(C.fit_h(crop, f2.height), "Крупно: игровой ракурс 256 px/тайл", "поворот и прямая")]),
+        row([C.panel(r2, "32 курса, 64 px/тайл ×2"), C.panel(C.fit_h(hero, r2.height), "Вид 3/4 на болванке рельса")]),
+        row([C.panel(C.fit_h(cp, 700), "Крупно 3/4: краска, потёртости, пыль, AO"),
+             C.panel(C.fit_h(cg, 700), "Крупно, игровой угол 45° (без растяжки)")]),
+    ]
+    # 64 px ×4 рядом со спрайтом тайла
+    small = [C.panel(tile_x4(), "спрайт тайла ×4", " ")]
+    for view, nm in (("single", "E-W"), ("single_ns", "N-S"), ("single_dg", "диагональ")):
+        s64, _, _ = C.game_view(KEY, view, frames, K.PX_GAME)
+        small.append(C.panel(C.nearest(s64, 4), "каретка %s, 64 px ×4" % nm, " "))
+    blocks.append(row(small))
+    # сравнение с референсом 22 (ванильные машины и тайл автора): наш поезд в том же увеличении, что тайл на 22
+    if os.path.exists(REF22):
+        ref = Image.open(REF22).convert("RGBA")
+        H = 648
+        k = 3.2                                       # тайл 80 px на рисунке 22 ≈ 256 px → увеличение ×3.2
+        x0, y0 = fr256.px(-0.6, 0.6, 0)
+        f64c = field64.crop((int(x0 / 4), int(y0 / 4), int(x0 / 4) + int(H / k), int(y0 / 4) + int(H / k)))
+        ours = f64c.resize((round(f64c.width * k), round(f64c.height * k)), Image.Resampling.LANCZOS)
+        blocks.append(row([C.panel(C.fit_h(ref, H), "референс 22: ванила Space Age и тайл автора (справа)"),
+                           C.panel(ours, "hp2 с материалами, 64 px/тайл в том же увеличении")]))
+    W = max(b.width for b in blocks) + 24
+    S = Image.new("RGBA", (W, 56 + sum(b.height + 14 for b in blocks)), DARK)
+    C.label(S, "Каретка hp2 — генеративные материалы (Cycles): кремовая краска, потёртости кромок, рыжая пыль, AO; "
+               "колёса и бампер — голый металл", 24, (12, 12))
+    y = 56
+    for b in blocks:
+        S.alpha_composite(b, (12, y))
+        y += b.height + 14
+    S.save(os.path.join(C.OUT, "sheet_tex.png"))
+    print("sheet sheet_tex.png", S.size)
+
+
+if __name__ == "__main__":
+    main()

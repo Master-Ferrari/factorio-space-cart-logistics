@@ -5,6 +5,7 @@
   python hp2/make.py --from render           # без пересборки .blend
   python hp2/make.py --from compose          # только листы
   python hp2/make.py --only A --views single,ortho
+  python hp2/make.py --from compose --tex 01      # материалы: Cycles-рендер + out/sheet_tex.png (+ кадр hp2_tex_01)
 
 Результат: hp2/out/sheet.png, hp2/out/metrics.json.
 """
@@ -37,6 +38,8 @@ def main():
     ap.add_argument("--only", default=None)
     ap.add_argument("--views", default=None)
     ap.add_argument("--film", default=None, help="NN: снять лист и панели в film/data как hp2_NN")
+    ap.add_argument("--tex", default=None, help="NN: материалы — render_tex.py (Cycles) + compose_tex.py -> out/sheet_tex.png;"
+                                                " NN — кадр фильма hp2_tex_NN (0 — без кадра)")
     a = ap.parse_args()
     todo = STAGES[STAGES.index(a.start):]
     if "build" in todo:
@@ -62,6 +65,17 @@ def main():
         shutil.copy(os.path.join(HERE, "out", "close.png"), os.path.join(film, "data", "frames", "hp2_%s_close.png" % a.film))
         run([sys.executable, os.path.join(film, "src", "panels.py"), HERE, "A",
              os.path.join(film, "data", "panels", "hp2_%s" % a.film)])
+    if a.tex is not None:
+        # рендер с материалами — без --factory-startup (Cycles в фоне виснет); кадры берёт из out/render/frames.json
+        run([BLENDER, "-b", "cart_hp2.blend", "--python", "render_tex.py"])
+        run([sys.executable, "compose_tex.py"])
+        if a.tex not in ("0", "00"):
+            from PIL import Image
+            film = os.path.join(HERE, "..", "film")
+            Image.open(os.path.join(HERE, "out", "sheet_tex.png")).convert("RGB").save(
+                os.path.join(film, "data", "frames", "hp2_tex_%s.jpg" % a.tex), quality=90)
+            run([sys.executable, os.path.join(film, "src", "panels.py"), HERE, "T",
+                 os.path.join(film, "data", "panels", "hp2_tex_%s" % a.tex)])
 
 
 if __name__ == "__main__":
