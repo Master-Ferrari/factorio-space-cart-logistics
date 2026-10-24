@@ -148,10 +148,10 @@ def in_pocket(c, sx):
 K_UP, K_DN = 0.673, 0.82         # наклоны рёбер грани торца в её плоскости: верхние фаски (шатёр), нижние скаты
 PANEL_M, PANEL_D = 0.020, 0.010  # филёнка торца: отступ от гибов шатра и глубина (гибы читаются рёбрами)
 GRIP_M = 0.026                   # выемка: равный отступ от верхней и боковых кромок филёнки
-GRIP_V = (PANEL_M + GRIP_M, PANEL_M + GRIP_M + 0.086)   # от верхней кромки торца вниз по скату
+GRIP_V = (PANEL_M + GRIP_M, PANEL_M + GRIP_M + 0.098)   # от верхней кромки торца вниз по скату
 GRIP_HW = BOX_HW + K_UP * GRIP_V[0] - (PANEL_M + GRIP_M) * math.sqrt(1 + K_UP ** 2)
 GRIP_CH = 0.024                  # длина фаски верхних углов (по скату)
-GRIP_CHF = 0.018                 # фаска нижней наружной кромки выемки (45°)
+GRIP_CHF = 0.046                 # широкий скос нижней наружной кромки: от панели вглубь до дна (светлая полоса)
 FACE = [(-BOX_HW, 0.0), (BOX_HW, 0.0), (HEX_HW, 0.141), (HEX_HW, 0.193), (BOX_HW, 0.309), (-BOX_HW, 0.309),
         (-HEX_HW, 0.193), (-HEX_HW, 0.141)]   # грань торца в своих координатах (x, v)
 
@@ -206,8 +206,8 @@ def grip_cutter(sy):
     """Выемка хвата: вырез в листе — верхняя стенка глубокая, стенки скошены как стенки короба,
     дно выходит к нижней кромке скруглением R 0.09 (гибка + фреза)."""
     v0, v1 = GRIP_V
-    D, CH = 0.032, GRIP_CHF                                    # глубина, фаска нижней кромки 45°
-    rows = [(v0, D), (v0 + GRIP_CH, D), (v1 - CH - 0.0005, D), (v1 - CH, CH), (v1, 0.0015)]
+    D, CH = 0.034, GRIP_CHF                                    # глубина, скос нижней кромки
+    rows = [(v0, D), (v0 + GRIP_CH, D), (v1 - CH, D), (v1, 0.0015)]
     rings = []
     for v, dd in rows:
         hw = grip_hw(v)
@@ -315,7 +315,7 @@ def build_visor_rivets(M):
 
 
 LUG_T, NUT_T = 0.020, 0.010
-BUMP_Y, BUMP_Z = 0.442, 0.252      # труба бампера: ниже и дальше, чтобы гайка пальца её не касалась
+BUMP_Y, BUMP_Z = 0.382, 0.236      # труба бампера: ниже и дальше, чтобы гайка пальца её не касалась
 
 
 def lug(sx, sy):
@@ -379,28 +379,91 @@ def build_pins(M):
     return c, q
 
 
+def arc_y(x):
+    return BUMP_Y + 0.045 * (1 - (x / 0.215) ** 2)
+
+
+def catmull(pts, n=8):
+    """Гладкая кривая через точки (Катмулл-Ром) — гиб трубы."""
+    P = [Vector(p) for p in pts]
+    P = [P[0] * 2 - P[1]] + P + [P[-1] * 2 - P[-2]]
+    out = []
+    for i in range(1, len(P) - 2):
+        p0, p1, p2, p3 = P[i - 1], P[i], P[i + 1], P[i + 2]
+        for k in range(n):
+            t = k / n
+            out.append(0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
+                              (-p0 + 3 * p1 - 3 * p2 + p3) * t ** 3))
+    out.append(P[-2])
+    return out
+
+
+def ball(c, r):
+    return hk.lathe([(0, -r)] + [(r * math.sin(math.pi * k / 16), -r * math.cos(math.pi * k / 16)) for k in range(1, 16)]
+                    + [(0, r)], c, (0, 0, 1), 40)
+
+
+BUMP_DENTS = [(-0.075, 0.006, 0.034, 0.013), (0.045, -0.010, 0.030, 0.011), (0.150, 0.004, 0.026, 0.010),
+              (-0.170, -0.006, 0.024, 0.009)]   # (x, dz, радиус, глубина) — вмятины на лобовой части дуги
+
+
 def build_bumpers(M):
-    """Бампер — голая стальная труба (жертвенный металл): округлая в плане, работает и на развороте;
-    на литом кронштейне от днища."""
-    tubes = []
+    """Бампер — жертвенный металл, одна кованая деталь: дуга из трубы r 30 с загнутыми назад концами и две
+    гусиные шеи из той же трубы, поднятые к днищу и расплющенные в лапы под болты; всё сварено одним ремешем
+    (плавные переходы). Лоб дуги сплющен и помят — следы ударов о соседа."""
+    out = []
     for sy in (-1, 1):
-        pts = []
-        for k in range(33):
-            x = -0.215 + 0.43 * k / 32
-            pts.append((x, sy * (BUMP_Y + 0.045 * (1 - (x / 0.215) ** 2)), BUMP_Z))
-        parts = [hk.sweep(pts, 0.030, 40)]
-        for e in (pts[0], pts[-1]):
-            parts.append(hk.lathe([(0, -0.030)] + [(0.030 * math.sin(math.pi * k / 16), -0.030 * math.cos(math.pi * k / 16))
-                                                   for k in range(1, 16)] + [(0, 0.030)], e, (0, 0, 1), 40))
-        arm = [(x, sy * y, z) for x in (-0.04, 0.04) for y, z in ((0.30, 0.352), (0.40, 0.352), (0.30, 0.335))] + \
-              [(x, sy * y, z) for x in (-0.03, 0.03) for y, z in ((0.45, 0.272), (0.48, 0.272), (0.45, 0.234), (0.48, 0.234))]
-        a = hk.hull(arm)
-        hk.bevel(a, 0.010, 3, 30)
-        parts.append(a)
-        tubes.append(hk.join(parts, 'bumper'))
-    t = hk.join(tubes, 'bumpers')
-    hk.rs(t, VOX_FINE, it=8)
-    return t
+        parts = []
+        arc = [(x, arc_y(x), BUMP_Z) for x in [-0.215 + 0.43 * k / 12 for k in range(13)]]
+        curl = lambda sx_: [(sx_ * 0.236, BUMP_Y - 0.022, BUMP_Z + 0.004), (sx_ * 0.244, BUMP_Y - 0.046, BUMP_Z + 0.010)]
+        path = curl(-1)[::-1] + arc + curl(1)
+        path = [(x, sy * y, z) for x, y, z in path]
+        parts.append(hk.sweep(catmull(path, 6), 0.030, 40))
+        for e in (path[0], path[-1]):
+            parts.append(ball(e, 0.030))
+        for x0 in (-0.062, 0.062):
+            y0 = arc_y(x0)
+            neck = [(x0, y0, BUMP_Z), (x0, y0 - 0.030, BUMP_Z + 0.022), (x0 * 0.9, y0 - 0.060, BUMP_Z + 0.062),
+                    (x0 * 0.8, 0.345, Z_BOT - 0.004)]
+            neck = [(x, sy * y, z) for x, y, z in neck]
+            parts.append(hk.sweep(catmull(neck, 8), 0.026, 32))
+            parts.append(ball(neck[0], 0.034))                           # наплыв сварки / ковки в месте гиба
+            # лапа: конец шеи расплющен под два болта
+            fx = x0 * 0.8
+            foot = [(fx + dx, sy * y, z) for dx in (-0.032, 0.032) for y in (0.305, 0.385) for z in (Z_BOT - 0.016, Z_BOT + 0.002)]
+            f = hk.hull(foot)
+            hk.bevel(f, 0.008, 3, 30)
+            parts.append(f)
+        b = hk.join(parts, 'bumper')
+        hk.rs(b, VOX_FINE, it=6)
+        dent(b, sy)
+        out.append(b)
+    return hk.join(out, 'bumpers')
+
+
+def dent(obj, sy):
+    """Сплющенный лоб и вмятины: вершины лобовой стороны дуги сдвигаются к оси трубы."""
+    me = obj.data
+    for v in me.vertices:
+        c = v.co
+        if abs(c.x) > 0.23 or c.z < BUMP_Z - 0.04 or c.z > BUMP_Z + 0.04:
+            continue
+        ya = arc_y(c.x)
+        out_ = sy * c.y - ya                                             # насколько вершина впереди оси трубы
+        if out_ <= 0:
+            continue
+        # сплющивание: лоб срезан на 7 мм у середины, к концам дуги сходит на нет
+        lim = 0.030 - 0.007 * max(0.0, 1 - (c.x / 0.19) ** 2)
+        y_new = min(out_, lim)
+        for dx, dz, r, d in BUMP_DENTS:
+            q = math.hypot(c.x - dx, c.z - (BUMP_Z + dz))
+            if q < r:
+                y_new -= d * (1 - (q / r) ** 2) ** 2 * (out_ / 0.030)
+        c.y = sy * (ya + max(y_new, 0.004))
+    me.update()
+    m = obj.modifiers.new('sm', 'SMOOTH')
+    m.factor, m.iterations = 0.5, 2
+    hk.realize(obj)
 
 
 # ---------------------------------------------------------------- колесо
