@@ -20,6 +20,8 @@ REF22 = os.path.join(HERE, "..", "film", "data", "images", "22.png")
 REF13 = os.path.join(HERE, "..", "film", "data", "images", "13.png")    # справа — ванильные сундуки на песке
 REF13_BOX = (776, 150, 1410, 520)
 REF23 = os.path.join(HERE, "..", "film", "data", "images", "23.png")    # стальной сундук крупно (~220 px на тайл)
+REF24 = os.path.join(HERE, "..", "film", "data", "images", "24.png")    # накладка над пружиной: контур автора
+REF24_CROP = (330, 360, 770, 580)                                        # то же место на T_close_game
 KEY = "T"
 DARK = (22, 24, 26, 255)
 
@@ -62,6 +64,11 @@ def main():
         row([C.panel(C.fit_h(cp, 700), "Крупно 3/4: краска, потёртости, пыль, AO"),
              C.panel(C.fit_h(cg, 700), "Крупно, игровой угол 45° (без растяжки)")]),
     ]
+    if os.path.exists(REF24):
+        r24 = Image.open(REF24).convert("RGBA")
+        r24 = r24.resize((r24.width * 2, r24.height * 2), Image.Resampling.LANCZOS)
+        blocks.append(row([C.panel(r24, "рисунок 24: контур накладки (автор)"),
+                           C.panel(C.fit_h(cg.crop(REF24_CROP), r24.height), "накладка сейчас, игровой угол 45°")]))
     # 64 px ×4 рядом со спрайтом тайла
     small = [C.panel(tile_x4(), "спрайт тайла ×4", " ")]
     for view, nm in (("single", "E-W"), ("single_ns", "N-S"), ("single_dg", "диагональ")):

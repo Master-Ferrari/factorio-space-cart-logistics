@@ -356,4 +356,11 @@ STEPS.append(dict(
              sheets=[F + "hp2_tex_06.jpg"],
              variants=[("hp2 tex", "hp2_tex_06")])))
 
+STEPS.append(dict(
+    user=dict(text="""форму заглушки ты так и не изменил. смотри на моё прошлое вложение""", images=[IMG + "24.png"]),
+    res=dict(title="Текстуры · седьмой проход: заглушка по рисунку",
+             note="Заглушка шире кармана: лапы с заклёпками по бокам, П-вырез вверх над пружиной.",
+             sheets=[F + "hp2_tex_07.jpg"],
+             variants=[("hp2 tex", "hp2_tex_07")])))
+
 FINAL = ""

@@ -295,36 +295,67 @@ def visor_frame(sx):
     return P, ds, nu
 
 
-# накладка над пружиной (проход tex_05, рисунок 24): «плечи — язык по центру — плечи». Координаты (y, s):
-# y — по ходу, s — вниз по скату от верхней кромки площадки. Плечи несут заклёпки, их нижние углы скошены;
-# язык опущен над пружиной, его нижняя кромка отогнута. Отдельная деталь: лежит на скате, стык — тёмный шов.
-VISOR = [(-0.118, -0.004), (0.118, -0.004), (0.118, 0.030), (0.100, 0.048), (-0.100, 0.048), (-0.118, 0.030)]
-VISOR_TONGUE = [(-0.050, 0.0), (0.050, 0.0), (0.050, 0.062), (0.042, 0.070), (-0.042, 0.070), (-0.050, 0.062)]
+# накладка над пружиной (проход tex_07, рисунок 24): широкая пластина, по бокам — опущенные «лапы» с заклёпками
+# (нижние наружные углы скошены), между ними — П-образный вырез вверх над пружиной, углы выреза скруглены.
+# Координаты (y, s): y — по ходу, s — вниз по скату от верхней кромки площадки; (полуконтур y >= 0, третье — радиус).
+VISOR_HALF = [(0.0, 0.030, 0.0), (0.060, 0.030, 0.012), (0.060, 0.080, 0.004), (0.086, 0.080, 0.006),
+              (0.140, 0.058, 0.006), (0.140, -0.004, 0.003)]
 VISOR_T, VISOR_W0 = 0.012, -0.002          # толщина листа, низ листа над скатом (чуть утоплен — без щели на просвет)
-VISOR_RIVETS = [(-0.098, 0.018), (0.098, 0.018)]
+VISOR_RIVETS = [(-0.098, 0.022), (0.098, 0.022)]
+
+
+def fillet_poly(pts, n=6):
+    """Замкнутый многоугольник [(x, y, r)] -> точки со скруглёнными углами (r — радиус галтели, 0 — острый)."""
+    out = []
+    m = len(pts)
+    for i in range(m):
+        p = Vector(pts[i][:2])
+        r = pts[i][2]
+        if r <= 0:
+            out.append(tuple(p))
+            continue
+        a, b = Vector(pts[i - 1][:2]), Vector(pts[(i + 1) % m][:2])
+        da, db = (a - p).normalized(), (b - p).normalized()
+        ang = math.acos(max(-1.0, min(1.0, da.dot(db))))
+        t = r / math.tan(ang / 2)
+        p0, p1 = p + da * t, p + db * t
+        c = p + (da + db).normalized() * (r / math.sin(ang / 2))
+        a0 = math.atan2(p0.y - c.y, p0.x - c.x)
+        a1 = math.atan2(p1.y - c.y, p1.x - c.x)
+        da_ = (a1 - a0 + math.pi) % (2 * math.pi) - math.pi
+        for k in range(n + 1):
+            q = a0 + da_ * k / n
+            out.append((c.x + r * math.cos(q), c.y + r * math.sin(q)))
+    return out
+
+
+def visor_outline():
+    half = VISOR_HALF[1:]
+    full = [(-y, s_, r) for y, s_, r in reversed(half)] + half
+    return fillet_poly(full)
 
 
 def pocket_visor(sx):
-    """Накладка над карманом пружины — листовая деталь: широкие плечи на двух заклёпках со скошенными нижними
-    углами, по центру — язык, опущенный над пружиной, его нижняя кромка отогнута 45° наружу. Один мелкий ремеш."""
+    """Накладка над карманом пружины — листовая деталь (рисунок 24): лапы с заклёпками, П-вырез над пружиной.
+    Контур — плита по нормали ската, мелкий ремеш + Smooth (кромки мягкие, без булевых)."""
     P, ds, nu = visor_frame(sx)
     Y = Vector((0, 1, 0))
     w0, w1 = VISOR_W0, VISOR_W0 + VISOR_T
 
     def pt(y, s_, w):
         return P + Y * y + ds * s_ + nu * w
-    parts = []
-    for poly in (VISOR, VISOR_TONGUE):
-        o = hk.hull([pt(y, s_, w) for y, s_ in poly for w in (w0, w1)])
-        hk.bevel(o, 0.003, 2, 30)
-        parts.append(o)
-    q = (ds + nu).normalized() * 0.016            # отгиб нижней кромки языка: 45° наружу-вниз, 16 мм
-    edge = [VISOR_TONGUE[3], VISOR_TONGUE[4]]
-    lip = hk.hull([pt(y, s_ - 0.010, w) + q * k for y, s_ in edge for w in (w0, w1) for k in (0, 1)])
-    hk.bevel(lip, 0.003, 2, 30)
-    parts.append(lip)
-    o = hk.join(parts, 'visor')
-    hk.rs(o, VOX_FINE, it=2)
+    poly = visor_outline()
+    bm = bmesh.new()
+    lo = [bm.verts.new(pt(y, s_, w0)) for y, s_ in poly]
+    hi = [bm.verts.new(pt(y, s_, w1)) for y, s_ in poly]
+    bm.faces.new(lo)
+    bm.faces.new(hi[::-1])
+    for i in range(len(poly)):
+        j = (i + 1) % len(poly)
+        bm.faces.new([lo[i], lo[j], hi[j], hi[i]])
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
+    o = hk.obj_from_bm(bm, 'visor')
+    hk.rs(o, VOX_FINE, it=3)
     return o
 
 
