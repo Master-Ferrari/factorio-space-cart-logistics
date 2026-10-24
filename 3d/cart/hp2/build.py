@@ -51,7 +51,7 @@ POCKET_HY = 0.066
 BEAD_R = 0.011                       # выштамповка-ребро жёсткости (полукруг в листе)
 RIB_X = (-0.112, -0.056, 0.0, 0.056, 0.112)
 END_S = Vector((0, END_Y - 0.16, -(0.608 - END_Z))).normalized()   # вниз по скату торца (для sy=+1)
-SPRING_S = 0.175                     # гнездо пружины на щеке (вверх по скату от пальца)
+SPRING_S = 0.142                     # гнездо пружины на щеке (вверх по скату от пальца)
 
 
 def frame(sx):
@@ -151,6 +151,7 @@ GRIP_M = 0.026                   # выемка: равный отступ от 
 GRIP_V = (PANEL_M + GRIP_M, PANEL_M + GRIP_M + 0.086)   # от верхней кромки торца вниз по скату
 GRIP_HW = BOX_HW + K_UP * GRIP_V[0] - (PANEL_M + GRIP_M) * math.sqrt(1 + K_UP ** 2)
 GRIP_CH = 0.024                  # длина фаски верхних углов (по скату)
+GRIP_CHF = 0.018                 # фаска нижней наружной кромки выемки (45°)
 FACE = [(-BOX_HW, 0.0), (BOX_HW, 0.0), (HEX_HW, 0.141), (HEX_HW, 0.193), (BOX_HW, 0.309), (-BOX_HW, 0.309),
         (-HEX_HW, 0.193), (-HEX_HW, 0.141)]   # грань торца в своих координатах (x, v)
 
@@ -205,15 +206,11 @@ def grip_cutter(sy):
     """Выемка хвата: вырез в листе — верхняя стенка глубокая, стенки скошены как стенки короба,
     дно выходит к нижней кромке скруглением R 0.09 (гибка + фреза)."""
     v0, v1 = GRIP_V
-    R = 0.09
-    H = v1 - v0
-    vs_ = sorted(set([v0 + H * k / 20 for k in range(21)] + [v0 + GRIP_CH]))
+    D, CH = 0.032, GRIP_CHF                                    # глубина, фаска нижней кромки 45°
+    rows = [(v0, D), (v0 + GRIP_CH, D), (v1 - CH - 0.0005, D), (v1 - CH, CH), (v1, 0.0015)]
     rings = []
-    for v in vs_:
+    for v, dd in rows:
         hw = grip_hw(v)
-        x = v1 - v                                                 # от нижней кромки вверх
-        depth = R - math.sqrt(max(R * R - x * x, 0.0)) if x < R else R
-        dd = max(min(depth, 0.032), 0.0015)
         sl = 0.45 * dd                                             # скос боковых стенок
         rings.append([end_face_pt(sy, -hw - 0.012, v, 0.03), end_face_pt(sy, hw + 0.012, v, 0.03),
                       end_face_pt(sy, hw - sl, v, -PANEL_D - dd), end_face_pt(sy, -hw + sl, v, -PANEL_D - dd)])
@@ -317,6 +314,10 @@ def build_visor_rivets(M):
     return hk.join(parts, 'visor_rivets')
 
 
+LUG_T, NUT_T = 0.020, 0.010
+BUMP_Y, BUMP_Z = 0.442, 0.252      # труба бампера: ниже и дальше, чтобы гайка пальца её не касалась
+
+
 def lug(sx, sy):
     """Проушина пальца: лист 34 мм, приварен к торцу, обнимает палец."""
     P = pin_point(sx)
@@ -325,7 +326,7 @@ def lug(sx, sy):
         a = 2 * math.pi * k / 16
         pts.append((P.x + 0.028 * math.cos(a), P.z + 0.028 * math.sin(a)))
     pts += [(sx * 0.115, 0.40), (sx * 0.185, 0.40), (sx * 0.115, 0.36), (sx * 0.185, 0.36)]
-    y0, y1 = sorted((sy * (END_Y - 0.004), sy * (END_Y + 0.034)))
+    y0, y1 = sorted((sy * (END_Y - 0.004), sy * (END_Y + LUG_T)))
     o = hk.hull([(x, y, z) for x, z in pts for y in (y0, y1)])
     hk.bevel(o, 0.005, 2, 30)
     return o
@@ -386,13 +387,13 @@ def build_bumpers(M):
         pts = []
         for k in range(33):
             x = -0.215 + 0.43 * k / 32
-            pts.append((x, sy * (0.430 + 0.045 * (1 - (x / 0.215) ** 2)), 0.28))
+            pts.append((x, sy * (BUMP_Y + 0.045 * (1 - (x / 0.215) ** 2)), BUMP_Z))
         parts = [hk.sweep(pts, 0.030, 40)]
         for e in (pts[0], pts[-1]):
             parts.append(hk.lathe([(0, -0.030)] + [(0.030 * math.sin(math.pi * k / 16), -0.030 * math.cos(math.pi * k / 16))
                                                    for k in range(1, 16)] + [(0, 0.030)], e, (0, 0, 1), 40))
         arm = [(x, sy * y, z) for x in (-0.04, 0.04) for y, z in ((0.30, 0.352), (0.40, 0.352), (0.30, 0.335))] + \
-              [(x, sy * y, z) for x in (-0.03, 0.03) for y, z in ((0.44, 0.30), (0.47, 0.30), (0.44, 0.262), (0.47, 0.262))]
+              [(x, sy * y, z) for x in (-0.03, 0.03) for y, z in ((0.45, 0.272), (0.48, 0.272), (0.45, 0.234), (0.48, 0.234))]
         a = hk.hull(arm)
         hk.bevel(a, 0.010, 3, 30)
         parts.append(a)
@@ -403,8 +404,8 @@ def build_bumpers(M):
 
 
 # ---------------------------------------------------------------- колесо
-R_OUT = 0.296          # наружная грань колеса (a = -0.035) — сплошной обод толщиной 85 мм у кромки
-CONE_A0 = -0.0205      # где рабочий конус (r + a = R) встречает наружную грань: скругление R 12, не поясок
+# обод: наружная грань a = -0.035 встречает рабочий конус (r + a = R) в виртуальном углу r 0.325; угол скруглён
+# (касательные 45 мм) — низ обода r - a = 0.333, z 0.011 над ложем; наибольший радиус 0.306
 
 
 def wheel_profile():
@@ -413,9 +414,9 @@ def wheel_profile():
     R, h = R_WHEEL, T_WHEEL / 2
     h0 = 0.035                                                     # наружная грань как была; утолщение — внутрь
     pts = [(0, -0.030), (0.027, -0.030), (0.036, -0.021), (0.036, -0.011), (0.200, -0.011), (0.206, -0.016),
-           (0.214, -0.016), (0.220, -0.011), (0.226, -0.011), (0.234, -h0), (R_OUT, -h0), (R - CONE_A0, CONE_A0),
+           (0.214, -0.016), (0.220, -0.011), (0.226, -0.011), (0.234, -h0), (R + h0, -h0),
            (R - 0.050, 0.050), (0.196, 0.050), (0.184, 0.030), (0.058, 0.030), (0.046, 0.040), (0.046, 0.056), (0, 0.056)]
-    radii = [0, 0.004, 0.004, 0.004, 0.003, 0.002, 0.002, 0.003, 0.003, 0.004, 0.012, 0.010, 0.004,
+    radii = [0, 0.004, 0.004, 0.004, 0.003, 0.002, 0.002, 0.003, 0.003, 0.004, 0.030, 0.004,
              0.004, 0.006, 0.005, 0.003, 0.003, 0]
     return hk.round_profile(pts, radii)
 
@@ -498,11 +499,12 @@ def build_cheek(sx, M):
 
 def build_pin(sx, M):
     P = pin_point(sx)
-    rod = hk.cyl(P + Vector((0, -0.452, 0)), (0, 1, 0), 0.0125, 0.904, segs=32)
+    L = END_Y + LUG_T + NUT_T + 0.003
+    rod = hk.cyl(P + Vector((0, -L, 0)), (0, 1, 0), 0.0125, 2 * L, segs=32)
     nuts = []
     for sy in (-1, 1):
-        y0 = sy * (END_Y + 0.034) if sy > 0 else -(END_Y + 0.034) - 0.016
-        nt = hk.cyl(P + Vector((0, y0, 0)), (0, 1, 0), 0.024, 0.016, segs=8, ref=(0, 0, 1), phase=math.pi / 8)
+        y0 = sy * (END_Y + LUG_T) if sy > 0 else -(END_Y + LUG_T) - NUT_T
+        nt = hk.cyl(P + Vector((0, y0, 0)), (0, 1, 0), 0.024, NUT_T, segs=8, ref=(0, 0, 1), phase=math.pi / 8)
         hk.bevel(nt, 0.0025, 2, 30)
         nuts.append(nt)
     return rod, hk.join(nuts, 'pin_nuts')
