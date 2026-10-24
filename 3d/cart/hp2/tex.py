@@ -20,11 +20,18 @@ import bpy
 P = dict(
     paint=(0.53, 0.49, 0.415),       # кремовая краска (проход tex_01, отвергнута: «забей на белую краску»)
     body=(0.046, 0.044, 0.042),     # tex_02: тёмная воронёная сталь с тёплым бурым отливом — как стальной сундук
+    paint_grey=(0.050, 0.050, 0.050),  # tex_05: «цвет краски сделай серее» — нейтральный серый, без бурого
+    paint_top=(0.20, 0.20, 0.197),     # tex_05: «на верхних поверхностях краска корпуса должна быть белее» — выцвела
+    paint_top_nz=(0.70, 0.98),         # маска верха: нормаль Z, плавно (боковые темнее, верх светлее)
+    paint_top_metal=0.35,              # выцветшая краска наверху — меньше металла (иначе база уходит в отражение)
+    visor=(0.026, 0.026, 0.026),       # накладка над пружиной — отдельная деталь, темнее корпуса (светлые заклёпки на тёмном)
+    recess=(0.0025, 0.0022, 0.002),     # ручное затемнение выемок (атрибут recess из build.py)
+    recess_amt=0.95,
     body_metal=0.75, body_rough=0.48,
     edge_steel=(0.78, 0.76, 0.73),  # кромки, гибы, рёбра — затёрты до блеска металла (рейки и обвязка сундука)
     rust=(0.16, 0.055, 0.02),       # ржавчина в швах
     patina=(0.06, 0.075, 0.05),     # зеленоватая патина пятнами
-    rust_amt=0.38,
+    rust_amt=0.22,                  # tex_05: «серее» — меньше бурого (было 0.38)
     paint_var=0.09,                 # пятнистость тона краски
     door=(0.20, 0.205, 0.21),       # дверь-люк — тёмная крашеная сталь (читается люком на светлом корпусе)
     steel=(0.56, 0.57, 0.58),       # голый металл (колесо, бампер)
@@ -153,12 +160,19 @@ class NB:
         if dbg and hasattr(self, "edge"):
             e = self.n('ShaderNodeEmission')
             self.val(e.inputs["Strength"], 1.0)
-            src = dict(edge=self.edge, ao=self.ao, wear=getattr(self, "wear", self.edge)).get(dbg)
+            if dbg == "recess":
+                self.edge = self.n('ShaderNodeAttribute', attribute_name="recess", attribute_type='GEOMETRY').outputs["Fac"]
+            src = dict(edge=self.edge, ao=self.ao, wear=getattr(self, "wear", self.edge), recess=self.edge).get(dbg)
             self.val(e.inputs["Color"], src if src is not None else self.dust_mask())
             o = self.n('ShaderNodeOutputMaterial')
             self.link(e.outputs[0], o.inputs["Surface"])
             return e
         b = self.n('ShaderNodeBsdfPrincipled')
+        if getattr(self, "rec", None) is not None:
+            # в выемке гасим и отражение: металл отражал небо, и тёмная база всё равно читалась серой
+            rough = self.mixf(self.rec, rough, 0.9)
+            metal = self.mixf(self.rec, metal, 0.0)
+            self.val(b.inputs["Specular IOR Level"], self.mixf(self.rec, 0.5, 0.05))
         self.val(b.inputs["Base Color"], color)
         self.val(b.inputs["Roughness"], rough)
         self.val(b.inputs["Metallic"], metal)
@@ -170,12 +184,16 @@ class NB:
 def ao_darken(nb, col, k=None):
     f = nb.math('MULTIPLY', nb.math('SUBTRACT', 1.0, nb.ao), P["ao_amt"] if k is None else k, clamp=True)
     col = nb.mix(f, col, (0.02, 0.018, 0.016))
+    # «в выемках руками докрась затемнение»: точная маска из build.py (атрибут точки), ровный градиент к дну
+    at = nb.n('ShaderNodeAttribute', attribute_name="recess", attribute_type='GEOMETRY')
+    nb.rec = nb.math('MULTIPLY', at.outputs["Fac"], P["recess_amt"], clamp=True)
+    col = nb.mix(nb.rec, col, P["recess"])
     # грязь в углах углублений и на стыках деталей: тёмно-бурая, почти чёрная (поверх широкой AO)
     g = nb.math('MULTIPLY', nb.ramp(nb.cav, 0.02, 0.22), P["grime_amt"], clamp=True)
     return nb.mix(g, col, P["grime"])
 
 
-def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.55, rough1=0.45, rust=0.0):
+def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.55, rough1=0.45, rust=0.0, top=None):
     """Краска по стали: пятнистый тон, потёртости кромок до металла, редкие сколы, пыль, AO."""
     nb = NB(mat)
     nb.masks()
@@ -191,6 +209,18 @@ def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.
         nb.link(lum, cr.inputs[i])
     nb.link(cr.outputs[0], ins["B_Color"])
     c = [s for s in col.outputs if s.identifier == "Result_Color"][0]
+    top_m = None
+    if top:
+        # верхние грани — выцветшая светло-серая краска; маска — нормаль Z, плавно
+        sn = nb.n('ShaderNodeSeparateXYZ')
+        nb.link(nb.n('ShaderNodeNewGeometry').outputs["Normal"], sn.inputs[0])
+        top_m = nb.ramp(sn.outputs["Z"], *P["paint_top_nz"])
+        tc = nb.n('ShaderNodeMix', data_type='RGBA', blend_type='MULTIPLY', clamp_factor=True)
+        ti = {s.identifier: s for s in tc.inputs}
+        ti["Factor_Float"].default_value = 1.0
+        ti["A_Color"].default_value = (*top, 1.0)
+        nb.link(cr.outputs[0], ti["B_Color"])
+        c = nb.mix(top_m, c, [s for s in tc.outputs if s.identifier == "Result_Color"][0])
     # потёртость: кромка, разорванная шумом (металл проступает пятнами, а не ровной полосой)
     wn = nb.noise(60.0, 5.0, 0.65)
     e = nb.math('ADD', nb.edge, nb.math('MULTIPLY', nb.math('SUBTRACT', wn, 0.5), 1.2))
@@ -214,7 +244,8 @@ def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.
     c = ao_darken(nb, c)
     rough = nb.mixf(wear_m, rough0, rough1)
     rough = nb.mixf(d, rough, 0.85)
-    metal = nb.mixf(d, nb.mixf(wear_m, metal0, 1.0), 0.0)
+    m0 = metal0 if top_m is None else nb.mixf(top_m, metal0, P["paint_top_metal"])
+    metal = nb.mixf(d, nb.mixf(wear_m, m0, 1.0), 0.0)
     nb.out(c, rough, metal)
 
 
@@ -246,9 +277,11 @@ def apply():
     M = bpy.data.materials
     st = dict(metal_under=P["edge_steel"], metal0=P["body_metal"], rough0=P["body_rough"], rough1=0.28,
               rust=P["rust_amt"])
-    paint(M["hp2_shell"], P["body"], **st)
-    paint(M["hp2_strap"], P["body"], **st)
-    paint(M["hp2_lid"], tuple(v * 2.4 for v in P["body"]), wear=1.3, **st)   # дверь светлее корпуса — отдельная деталь
+    paint(M["hp2_shell"], P["paint_grey"], top=P["paint_top"], **st)
+    paint(M["hp2_strap"], P["paint_grey"], top=P["paint_top"], **st)
+    paint(M["hp2_lid"], tuple(v * 2.4 for v in P["paint_grey"]), wear=1.3, **st)   # дверь светлее корпуса — отдельная деталь
+    # накладка над пружиной — своя деталь своим тоном (темнее корпуса), отделена тёмным швом
+    paint(M["hp2_visor"], P["visor"], top=tuple(v * 0.5 for v in P["paint_top"]), wear=1.3, **st)
     paint(M["hp2_orange"], P["orange"], wear=0.6, dust=0.5)
     bare(M["hp2_web"], P["steel_dark"], rough=0.5, dust=0.8)
     # колесо: нейтральный сатиновый металл — без пятен тона, шероховатее (меньше отражения неба), почти без пыли

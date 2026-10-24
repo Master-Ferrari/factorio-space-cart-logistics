@@ -73,6 +73,7 @@ def mats():
         shell=K.material("hp2_shell", (0.075, 0.08, 0.085), 0.6, 0.6),
         strap=K.material("hp2_strap", (0.12, 0.125, 0.13), 0.55, 0.6),
         lid=K.material("hp2_lid", (0.17, 0.175, 0.18), 0.5, 0.6),
+        visor=K.material("hp2_visor", (0.17, 0.175, 0.18), 0.5, 0.6),
         rib=K.material("hp2_rib", (0.42, 0.43, 0.45), 0.4, 0.8),
         rim=K.material("hp2_rim", (0.50, 0.52, 0.55), 0.35, 0.9),
         web=K.material("hp2_web", (0.045, 0.045, 0.05), 0.6, 0.5),
@@ -100,9 +101,8 @@ def end_planes():
     return pl
 
 
-def shell_parts():
-    up = Vector((HEX_HW - BOX_HW, 0, -(Z_TOP - HEX_Z1))).normalized()   # не используется напрямую
-    del up
+def shell_planes():
+    """Плоскости двух выпуклых тел корпуса: шестигранник шатра и нижний короб (no — наружу)."""
     planes_hex = [((0, 0, Z_TOP), (0, 0, 1)), ((0, 0, HEX_ZL), (0, 0, -1))]
     for sx in (-1, 1):
         planes_hex.append(((sx * HEX_HW, 0, 0), (sx, 0, 0)))
@@ -114,12 +114,22 @@ def shell_parts():
         d = Vector((HEX_HW - BOX_HW, 0, HEX_Z0 - HEX_ZL))
         nrm = Vector((d.z, 0, -d.x)).normalized()
         planes_hex.append(((sx * BOX_HW, 0, HEX_ZL), (sx * nrm.x, 0, nrm.z)))
-    hexo = hk.polytope(planes_hex + end_planes())
     planes_box = [((0, 0, Z_BOT), (0, 0, -1)), ((0, 0, HEX_ZL + 0.03), (0, 0, 1))]
     for sx in (-1, 1):
         planes_box.append(((sx * BOX_HW, 0, 0), (sx, 0, 0)))
-    box = hk.polytope(planes_box + end_planes())
-    return hexo, box
+    return planes_hex + end_planes(), planes_box + end_planes()
+
+
+def shell_parts():
+    ph, pb = shell_planes()
+    return hk.polytope(ph), hk.polytope(pb)
+
+
+def shell_depth(c, planes=None):
+    """Глубина точки под наружной поверхностью корпуса (объединение двух выпуклых тел): > 0 — внутри."""
+    ph, pb = planes or shell_planes()
+    sd = min(max((c - Vector(p)).dot(Vector(n)) for p, n in pl) for pl in (ph, pb))
+    return -sd
 
 
 def pocket_frame(sx):
@@ -285,26 +295,41 @@ def visor_frame(sx):
     return P, ds, nu
 
 
-VISOR = [(-0.118, -0.004), (0.118, -0.004), (0.118, 0.034), (0.092, 0.064), (-0.092, 0.064), (-0.118, 0.034)]
-VISOR_T = 0.012
+# накладка над пружиной (проход tex_05, рисунок 24): «плечи — язык по центру — плечи». Координаты (y, s):
+# y — по ходу, s — вниз по скату от верхней кромки площадки. Плечи несут заклёпки, их нижние углы скошены;
+# язык опущен над пружиной, его нижняя кромка отогнута. Отдельная деталь: лежит на скате, стык — тёмный шов.
+VISOR = [(-0.118, -0.004), (0.118, -0.004), (0.118, 0.030), (0.100, 0.048), (-0.100, 0.048), (-0.118, 0.030)]
+VISOR_TONGUE = [(-0.050, 0.0), (0.050, 0.0), (0.050, 0.062), (0.042, 0.070), (-0.042, 0.070), (-0.050, 0.062)]
+VISOR_T, VISOR_W0 = 0.012, -0.002          # толщина листа, низ листа над скатом (чуть утоплен — без щели на просвет)
 VISOR_RIVETS = [(-0.098, 0.018), (0.098, 0.018)]
 
 
 def pocket_visor(sx):
-    """Накладка над карманом пружины — листовая деталь: широкая, нижние углы срезаны, нижняя кромка отогнута
-    наружу (жёсткость и отбойник), на заклёпках. Пружина видна в щели под ней. Сварится с коробом ремешем."""
+    """Накладка над карманом пружины — листовая деталь: широкие плечи на двух заклёпках со скошенными нижними
+    углами, по центру — язык, опущенный над пружиной, его нижняя кромка отогнута 45° наружу. Один мелкий ремеш."""
     P, ds, nu = visor_frame(sx)
     Y = Vector((0, 1, 0))
+    w0, w1 = VISOR_W0, VISOR_W0 + VISOR_T
 
     def pt(y, s_, w):
         return P + Y * y + ds * s_ + nu * w
-    plate = hk.hull([pt(y, s_, w) for y, s_ in VISOR for w in (-VISOR_T + 0.006, 0.006)])
-    hk.bevel(plate, 0.003, 2, 30)
-    q = (ds + nu).normalized() * 0.016            # отгиб нижней кромки: 45° наружу-вниз, 16 мм
-    edge = [VISOR[3], VISOR[4]]
-    lip = hk.hull([pt(y, s_ - 0.010, w) + q * k for y, s_ in edge for w in (-VISOR_T + 0.006, 0.006) for k in (0, 1)])
+    parts = []
+    for poly in (VISOR, VISOR_TONGUE):
+        o = hk.hull([pt(y, s_, w) for y, s_ in poly for w in (w0, w1)])
+        hk.bevel(o, 0.003, 2, 30)
+        parts.append(o)
+    q = (ds + nu).normalized() * 0.016            # отгиб нижней кромки языка: 45° наружу-вниз, 16 мм
+    edge = [VISOR_TONGUE[3], VISOR_TONGUE[4]]
+    lip = hk.hull([pt(y, s_ - 0.010, w) + q * k for y, s_ in edge for w in (w0, w1) for k in (0, 1)])
     hk.bevel(lip, 0.003, 2, 30)
-    return [plate, lip]
+    parts.append(lip)
+    o = hk.join(parts, 'visor')
+    hk.rs(o, VOX_FINE, it=2)
+    return o
+
+
+def build_visors(M):
+    return hk.join([pocket_visor(-1), pocket_visor(1)], 'visors')
 
 
 def build_visor_rivets(M):
@@ -313,7 +338,7 @@ def build_visor_rivets(M):
     for sx in (-1, 1):
         P, ds, nu = visor_frame(sx)
         for y, s_ in VISOR_RIVETS:
-            parts.append(hk.lathe(prof, P + Vector((0, y, 0)) + ds * s_ + nu * 0.004, nu, 48))
+            parts.append(hk.lathe(prof, P + Vector((0, y, 0)) + ds * s_ + nu * (VISOR_W0 + VISOR_T - 0.002), nu, 48))
     return hk.join(parts, 'visor_rivets')
 
 
@@ -349,7 +374,7 @@ def build_body(M):
         body = hk.boolean(body, panel_cutter(sy))
         body = hk.boolean(body, grip_cutter(sy))
         print("body: grip", len(body.data.polygons))
-    parts = [body] + pocket_visor(-1) + pocket_visor(1)
+    parts = [body]
     for sx in (-1, 1):
         for sy in (-1, 1):
             parts.append(lug(sx, sy))
@@ -361,7 +386,55 @@ def build_body(M):
             return 2
         return 0
     paint(body, [M["shell"], M["strap"], M["web"]], cls)
+    recess_mask(body)
     return body
+
+
+RECESS = "recess"      # атрибут точки 0..1: ручное затемнение выемок хвата и карманов пружин (tex.py)
+
+
+def recess_mask(obj, it=6):
+    """«Докрась руками»: точная маска затемнения выемок, без шума. Внутри выемки хвата и кармана пружины — по
+    глубине под наружной поверхностью корпуса (плавно темнее к дну) плюс у верхней стенки и боковых углов выемки
+    хвата; затем несколько проходов сглаживания по соседям — ровный градиент. Филёнка (10 мм) и проём двери не входят."""
+    planes = shell_planes()
+    me = obj.data
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.verts.ensure_lookup_table()
+
+    def sstep(a, b, x):
+        t = min(max((x - a) / (b - a), 0.0), 1.0)
+        return t * t * (3 - 2 * t)
+    val = []
+    for v in bm.verts:
+        c = v.co
+        m = 0.0
+        sy = 1 if c.y > 0 else -1
+        nr = Vector((0, -sy * END_S.z, END_S.y))
+        dn = Vector((0, sy * END_S.y, END_S.z))
+        d = c - Vector((0, sy * DECK_HY, Z_TOP))
+        vv, ww = d.dot(dn), d.dot(nr)
+        if GRIP_V[0] - 0.006 < vv < GRIP_V[1] + 0.004 and abs(c.x) < grip_hw(min(max(vv, GRIP_V[0]), GRIP_V[1])) + 0.008                 and ww < -PANEL_D + 0.002:
+            depth = -ww - PANEL_D
+            m = sstep(0.0, 0.034, depth)
+            top = 1 - sstep(0.0, 0.05, vv - GRIP_V[0])                         # под верхней стенкой — глубже тень
+            side = 1 - sstep(0.0, 0.05, grip_hw(min(max(vv, GRIP_V[0]), GRIP_V[1])) - abs(c.x))
+            m *= 0.65 + 0.35 * max(top, side)
+        else:
+            for sx in (-1, 1):
+                Q, n, u = pocket_frame(sx)
+                dq = c - Q
+                if -0.10 < dq.dot(n) < 0.215 and abs(dq.y) < POCKET_HY + 0.010 and dq.dot(u) < 0.03:
+                    m = max(m, sstep(0.004, 0.07, shell_depth(c, planes)))
+        val.append(m)
+    adj = [[e.other_vert(v).index for e in v.link_edges] for v in bm.verts]
+    for _ in range(it):
+        val = [0.5 * val[i] + 0.5 * sum(val[j] for j in adj[i]) / max(len(adj[i]), 1) for i in range(len(val))]
+    bm.free()
+    at = me.attributes.new(RECESS, 'FLOAT', 'POINT')
+    at.data.foreach_set("value", val)
+    print("recess: %d verts > 0.1 of %d" % (sum(1 for x in val if x > 0.1), len(val)))
 
 
 def build_pins(M):
@@ -683,6 +756,7 @@ def main():
     out.append(finish(p, "pogo_pins", coll, body, M["brass"]))
     out.append(finish(build_bumpers(M), "bumpers", coll, body, M["steel"]))
     out.append(finish(build_door(M), "door", coll, body, M["lid"]))
+    out.append(finish(build_visors(M), "visors", coll, body, M["visor"]))
     out.append(finish(build_visor_rivets(M), "visor_rivets", coll, body, M["steel"]))
 
     for sx, side in ((-1, "L"), (1, "R")):
