@@ -32,15 +32,15 @@ MARGIN_PX = 12                 # отступ между островами (px 
 
 # наборы текстур (texture sets): материал на объекте = набор
 SETS = {
-    "cart_paint": ["body", "door", "visors", "cheek_L", "cheek_R", "tabs_L", "tabs_R", "tab_plates_L", "tab_plates_R"],
+    "cart_paint": ["body", "door", "visors", "cheek_L", "cheek_R", "lug_bars"],
     "cart_metal": ["wheel_L", "wheel_R", "bumpers"],
     "cart_hardware": ["spring_L", "spring_R", "spring_seat_L", "spring_seat_R", "pin_L", "pin_R", "pin_nuts_L",
                       "pin_nuts_R", "hub_nut_L", "hub_nut_R", "washer_L", "washer_R", "pogo_pins", "pogo_collars",
-                      "rivets_L", "rivets_R", "visor_rivets"],
+                      "visor_rivets", "lug_bolts"],
 }
 SET_COLOR = {"cart_paint": (0.30, 0.31, 0.32), "cart_metal": (0.55, 0.56, 0.58), "cart_hardware": (0.72, 0.50, 0.18)}
 # бюджет треугольников облегчённой сетки (остальное — как есть: токарные детали и мелочь уже лёгкие)
-TARGET = {"body": 110000, "cheek_L": 32000, "cheek_R": 32000, "bumpers": 32000, "door": 26000, "visors": 12000,
+TARGET = {"body": 110000, "lug_bars": 12000, "cheek_L": 32000, "cheek_R": 32000, "bumpers": 32000, "door": 26000, "visors": 12000,
           "pogo_collars": 9000, "pogo_pins": 7000}
 CONE = math.radians(52)        # остров: нормали в конусе ±CONE от нормали затравки (развёртка без растяжки)
 WN_WEIGHT = 50                 # Weighted Normal: вес по площади грани

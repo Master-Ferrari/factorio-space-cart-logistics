@@ -30,7 +30,7 @@ def run(cmd):
     p = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, encoding="utf-8", errors="replace")
     out = p.stdout + p.stderr
     for line in out.splitlines():
-        if any(k in line for k in ("saved", "sheet", "set cart_", "reimport", "tris high", "painted", "Warning", "wheel top", "body faces", "bumper front", "Error", "Traceback", "  File")) \
+        if any(k in line for k in ("saved", "sheet", "flipped", "set cart_", "reimport", "tris high", "painted", "Warning", "wheel top", "body faces", "bumper front", "Error", "Traceback", "  File")) \
                 or line[:2] in ("A ", "B "):
             print("   ", line)
     if p.returncode != 0 or "Traceback" in out:

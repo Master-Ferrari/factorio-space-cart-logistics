@@ -378,18 +378,40 @@ LUG_T, NUT_T = 0.020, 0.010
 BUMP_Y, BUMP_Z = 0.402, 0.236      # труба бампера: проход 8 — на 20 мм наружу (треть сдвига прохода 6)
 
 
-def lug(sx, sy):
-    """Проушина пальца: лист 34 мм, приварен к торцу, обнимает палец."""
-    P = pin_point(sx)
-    pts = []
-    for k in range(16):
-        a = 2 * math.pi * k / 16
-        pts.append((P.x + 0.028 * math.cos(a), P.z + 0.028 * math.sin(a)))
-    pts += [(sx * 0.115, 0.40), (sx * 0.185, 0.40), (sx * 0.115, 0.36), (sx * 0.185, 0.36)]
-    y0, y1 = sorted((sy * (END_Y - 0.004), sy * (END_Y + LUG_T)))
-    o = hk.hull([(x, y, z) for x, z in pts for y in (y0, y1)])
-    hk.bevel(o, 0.005, 2, 30)
+LUG_GAP = 0.0015        # зазор траверсы до торца корпуса: отдельная деталь, не приварена
+LUG_Z0, LUG_Z1 = 0.352, 0.398     # перемычка вдоль нижней кромки торца
+LUG_BOLTS = (-0.150, -0.060, 0.060, 0.150)
+
+
+def lug_bar(sy):
+    """Траверса пальцев (автор: «измени форму этих держалок, соедини их. но при этом отдели от базового контейнера»):
+    одна гнутая скоба на торец — перемычка вдоль нижней кромки торца и две лапы вниз, обнимают палец. Стоит
+    с зазором LUG_GAP перед торцом, держится на болтах (lug_bolts); с корпусом не сварена."""
+    y0, y1 = sorted((sy * (END_Y + LUG_GAP), sy * (END_Y + LUG_T)))
+    parts = [hk.hull([(x, y, z) for x in (-0.185, 0.185) for y in (y0, y1) for z in (LUG_Z0, LUG_Z1)])]
+    for sx in (-1, 1):
+        P = pin_point(sx)
+        pts = [(P.x + 0.028 * math.cos(2 * math.pi * k / 16), P.z + 0.028 * math.sin(2 * math.pi * k / 16))
+               for k in range(16)]
+        pts += [(sx * 0.120, LUG_Z1), (sx * 0.185, LUG_Z1), (sx * 0.120, LUG_Z0), (sx * 0.185, LUG_Z0)]
+        parts.append(hk.hull([(x, y, z) for x, z in pts for y in (y0, y1)]))
+    for o in parts:
+        hk.bevel(o, 0.004, 2, 30)
+    o = hk.join(parts, 'lug_bar')
+    hk.rs(o, VOX_FINE, it=2)
     return o
+
+
+def build_lugs(M):
+    bars, bolts = [], []
+    for sy in (-1, 1):
+        bars.append(lug_bar(sy))
+        for x in LUG_BOLTS:
+            b = hk.cyl(Vector((x, sy * (END_Y + LUG_T - 0.001), (LUG_Z0 + LUG_Z1) / 2)), (0, sy, 0), 0.0095, 0.0065,
+                       segs=6, ref=(0, 0, 1), phase=math.pi / 6)
+            hk.bevel(b, 0.0015, 1, 30)
+            bolts.append(b)
+    return hk.join(bars, 'lug_bars'), hk.join(bolts, 'lug_bolts')
 
 
 def build_body(M):
@@ -406,12 +428,7 @@ def build_body(M):
         body = hk.boolean(body, panel_cutter(sy))
         body = hk.boolean(body, grip_cutter(sy))
         print("body: grip", len(body.data.polygons))
-    parts = [body]
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            parts.append(lug(sx, sy))
-    body = hk.join(parts, 'body')
-    hk.rs(body, VOX, it=2)
+    hk.rs(body, VOX, it=2)          # проушины больше не привариваются: траверсы — отдельные детали (build_lugs)
 
     def cls(c, nr):
         if in_pocket(c, -1) or in_pocket(c, 1) or in_grip(c):
@@ -689,7 +706,9 @@ CHEEK_TOP = [(-0.385, 0.140), (-0.270, 0.140), (-0.210, 0.195), (-0.140, 0.226),
 
 
 def cheek_outline():
-    p = [(-CHEEK_HY, 0.0), (CHEEK_HY, 0.0)] + CHEEK_TOP[::-1]
+    # CHEEK_TOP уже идёт от +y к −y: контур обходится без самопересечения. Раньше здесь был второй [::-1] —
+    # контур перекручивался «бантиком», и лист щеки выходил песочными часами с пустотами (автор, рис. 27)
+    p = [(-CHEEK_HY, 0.0), (CHEEK_HY, 0.0)] + CHEEK_TOP
     return p
 
 
@@ -723,23 +742,8 @@ def build_cheek(sx, M):
     parts.append(hk.cyl(plane_pt(sx, 0, SPRING_S, A_CHEEK), n, 0.045, CHEEK_T / 2 + 0.015, segs=64))
     ch = hk.join(parts, 'cheek')
     hk.rs(ch, VOX_FINE, it=1)
-    # таблички на крыльях щеки (обе стороны крыла): оранжевая + стальная, на заклёпках
-    tabs, plates, rivets = [], [], []
-    for s, face in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
-        yc = s * 0.335
-        o = hk.prism(hk.chamfer_poly([(-0.033, 0.0), (0.033, 0.0), (0.033, 0.045), (-0.033, 0.045)], 0.006),
-                     plane_pt(sx, yc, 0.085, A_CHEEK + face * (CHEEK_T / 2 + 0.002)), (0, 1, 0), u, 0.006)
-        hk.bevel(o, 0.0015, 1, 30)
-        tabs.append(o)
-        o = hk.prism(hk.chamfer_poly([(-0.033, 0.0), (0.033, 0.0), (0.033, 0.035), (-0.033, 0.035)], 0.006),
-                     plane_pt(sx, yc, 0.035, A_CHEEK + face * (CHEEK_T / 2 + 0.002)), (0, 1, 0), u, 0.006)
-        hk.bevel(o, 0.0015, 1, 30)
-        plates.append(o)
-        for dy in (-0.024, 0.024):
-            for ss in (0.052, 0.108):
-                rivets.append(hk.lathe([(0, 0), (0.0045, 0), (0.0042, 0.002), (0.0025, 0.0035), (0, 0.004)],
-                                       plane_pt(sx, yc + dy, ss, A_CHEEK + face * (CHEEK_T / 2 + 0.004)), n * face, 16))
-    return ch, hk.join(tabs, 'tabs'), hk.join(plates, 'tab_plates'), hk.join(rivets, 'rivets')
+    # таблички с заклёпками на крыльях сняты (автор: «убери эти микропластины с гвоздиками. их всё равно не будет видно»)
+    return ch
 
 
 def build_pin(sx, M):
@@ -824,6 +828,15 @@ def finish(obj, name, coll, parent, mat=None, origin=(0, 0, 0), smooth=True, ang
     coll.objects.link(obj)
     obj.parent = parent
     me = obj.data
+    # нормали наружу: профиль lathe колеса и гайки ступицы обходился в обратную сторону — оболочка была вывернута
+    # (отрицательный объём; в Painter это ломает запекание). Проверка по знаку объёма на каждом объекте.
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    if bm.calc_volume(signed=True) < 0:
+        bmesh.ops.reverse_faces(bm, faces=bm.faces)
+        bm.to_mesh(me)
+        print("flipped normals:", name)
+    bm.free()
     me.shade_smooth()
     if angle is not None:
         me.set_sharp_from_angle(angle=math.radians(angle))
@@ -841,7 +854,7 @@ def main():
     bpy.context.preferences.filepaths.save_version = 0
     hk.WORK.append(K.collection("WORK"))
     M = mats()
-    for k in ("base", "bed", "blade"):
+    for k in ("base", "bed", "blade", "orange", "plate"):     # orange/plate без деталей (таблички сняты), tex.py их ждёт
         M[k].use_fake_user = True                 # подложка-болванка рельса для render.py
     coll = K.collection("CART_A")
     root = K.empty("CART_A_root", coll)
@@ -853,6 +866,9 @@ def main():
     out.append(finish(c, "pogo_collars", coll, body, M["rubber"]))
     out.append(finish(p, "pogo_pins", coll, body, M["brass"]))
     out.append(finish(build_bumpers(M), "bumpers", coll, body, M["steel"]))
+    bars, bolts = build_lugs(M)
+    out.append(finish(bars, "lug_bars", coll, body, M["strap"]))
+    out.append(finish(bolts, "lug_bolts", coll, body, M["steel"], angle=40))
     out.append(finish(build_door(M), "door", coll, body, M["lid"]))
     out.append(finish(build_visors(M), "visors", coll, body, M["visor"]))
     out.append(finish(build_visor_rivets(M), "visor_rivets", coll, body, M["steel"]))
@@ -863,12 +879,9 @@ def main():
         rod, nuts = build_pin(sx, M)
         out.append(finish(rod, "pin_" + side, coll, body, M["steel"], origin=P))
         out.append(finish(nuts, "pin_nuts_" + side, coll, body, M["brass"], origin=P, angle=40))
-        ch, tabs, plates, rivets = build_cheek(sx, M)
+        ch = build_cheek(sx, M)
         cheek = finish(ch, "cheek_" + side, coll, body, M["cheek"], origin=P)        # качается вокруг пальца (ось Y)
         out.append(cheek)
-        out.append(finish(tabs, "tabs_" + side, coll, cheek, M["orange"], origin=P, angle=40))
-        out.append(finish(plates, "tab_plates_" + side, coll, cheek, M["plate"], origin=P, angle=40))
-        out.append(finish(rivets, "rivets_" + side, coll, cheek, M["steel"], origin=P))
         w, nut, washer = build_wheel(sx, M)
         wheel = finish(w, "wheel_" + side, coll, cheek, origin=C, angle=30)                     # крутится вокруг n
         out.append(wheel)
