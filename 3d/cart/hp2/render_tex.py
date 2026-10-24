@@ -109,6 +109,24 @@ def instance(v, x, y, h, parent):
     return o
 
 
+def spring_light(sun, v):
+    """Пружина в полутени корпуса и накладки не читается витками (отзыв автора). Light/shadow linking Cycles:
+    основное солнце пружину не освещает; второе такое же солнце освещает только пружину, а тени для него
+    отбрасывает только сама пружина (витки затеняют друг друга, корпус — нет). Тень на остальном прежняя."""
+    sp = bpy.data.collections.get("SPRINGS") or bpy.data.collections.new("SPRINGS")
+    for nm in ("spring_L", "spring_R", "spring_seat_L", "spring_seat_R"):
+        o = bpy.data.objects[nm]
+        if o.name not in sp.objects:
+            sp.objects.link(o)
+    sun.light_linking.receiver_collection = sp
+    for c in sun.light_linking.receiver_collection.collection_objects:
+        c.light_linking.link_state = 'EXCLUDE'
+    s2 = K.sun("sun_spring", v, SUN_DIR, SUN_E, 2.0)
+    s2.light_linking.receiver_collection = sp
+    s2.light_linking.blocker_collection = sp
+    return s2
+
+
 def render(path):
     t = time.time()
     K.render_to(path)
@@ -123,7 +141,7 @@ def main():
         m.use_fake_user = m.name.startswith("hp2_")
     v = view_coll()
     if not any(o.type == 'LIGHT' for o in v.objects):
-        K.sun("sun", v, SUN_DIR, SUN_E, 2.0)
+        spring_light(K.sun("sun", v, SUN_DIR, SUN_E, 2.0), v)
     with open(os.path.join(OUT, "frames.json"), encoding="utf-8") as f:
         frames = json.load(f)
     for view in opt["views"]:

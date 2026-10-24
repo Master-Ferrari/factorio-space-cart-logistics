@@ -19,12 +19,12 @@ import bpy
 
 P = dict(
     paint=(0.53, 0.49, 0.415),       # кремовая краска (проход tex_01, отвергнута: «забей на белую краску»)
-    body=(0.068, 0.062, 0.056),     # tex_02: тёмная воронёная сталь с тёплым бурым отливом — как стальной сундук
+    body=(0.046, 0.044, 0.042),     # tex_02: тёмная воронёная сталь с тёплым бурым отливом — как стальной сундук
     body_metal=0.75, body_rough=0.48,
-    edge_steel=(0.62, 0.60, 0.57),  # кромки, гибы, рёбра — затёрты до блеска металла (рейки и обвязка сундука)
+    edge_steel=(0.78, 0.76, 0.73),  # кромки, гибы, рёбра — затёрты до блеска металла (рейки и обвязка сундука)
     rust=(0.16, 0.055, 0.02),       # ржавчина в швах
     patina=(0.06, 0.075, 0.05),     # зеленоватая патина пятнами
-    rust_amt=0.45,
+    rust_amt=0.38,
     paint_var=0.09,                 # пятнистость тона краски
     door=(0.20, 0.205, 0.21),       # дверь-люк — тёмная крашеная сталь (читается люком на светлом корпусе)
     steel=(0.56, 0.57, 0.58),       # голый металл (колесо, бампер)
@@ -33,13 +33,13 @@ P = dict(
     brass=(0.80, 0.55, 0.22),
     orange=(0.80, 0.30, 0.03),
     dust=(0.50, 0.20, 0.05),        # рыжая пыль
-    wear_edge=0.26,                 # порог кромки для потёртости (меньше — шире полосы металла)
+    wear_edge=0.22,                 # порог кромки для потёртости (меньше — шире полосы металла)
     wear_amt=0.75,                  # сила потёртости
     chips=0.06,                     # доля сколов на ровной краске
     dust_amt=0.70,                  # максимум пыли
     dust_low=(0.22, 0.46),          # пыль сходит на нет между этими высотами (z, тайлы)
-    ao_dist=0.05,
-    ao_amt=0.70,                    # насколько AO затемняет базовый цвет
+    ao_dist=0.08,
+    ao_amt=1.30,                    # насколько AO затемняет базовый цвет
     BEVEL_R=0.016,
 )
 
@@ -208,13 +208,13 @@ def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.
     nb.out(c, rough, metal)
 
 
-def bare(mat, base, rough=0.38, polish=0.0, dust=0.3, dark=None):
+def bare(mat, base, rough=0.38, polish=0.0, dust=0.3, dark=None, var=0.35, metal=1.0):
     """Голый металл: тон и шероховатость пятнами (следы износа), кромки светлее (затёрты), пыль в углах."""
     nb = NB(mat)
     nb.masks()
     n1 = nb.noise(45.0, 4.0, 0.55)
     n2 = nb.noise(180.0, 3.0, 0.5)
-    c = nb.mix(nb.math('MULTIPLY', n1, 0.35), base, dark or tuple(v * 0.6 for v in base))
+    c = nb.mix(nb.math('MULTIPLY', n1, var), base, dark or tuple(v * 0.6 for v in base))
     c = nb.mix(nb.math('MULTIPLY', nb.edge, 0.6 + polish), c, tuple(min(1.0, v * 1.35) for v in base))
     d = nb.dust_mask(dust)
     c = nb.mix(d, c, P["dust"])
@@ -222,7 +222,7 @@ def bare(mat, base, rough=0.38, polish=0.0, dust=0.3, dark=None):
     r = nb.math('ADD', rough, nb.math('MULTIPLY', nb.math('SUBTRACT', n2, 0.5), 0.25))
     r = nb.mixf(nb.edge, r, max(0.12, rough - 0.2))
     r = nb.mixf(d, r, 0.85)
-    nb.out(c, r, nb.mixf(d, 1.0, 0.0))
+    nb.out(c, r, nb.mixf(d, metal, 0.0))
 
 
 def rubber(mat):
@@ -241,7 +241,8 @@ def apply():
     paint(M["hp2_lid"], P["body"], wear=1.1, **st)
     paint(M["hp2_orange"], P["orange"], wear=0.6, dust=0.5)
     bare(M["hp2_web"], P["steel_dark"], rough=0.5, dust=0.8)
-    bare(M["hp2_rim"], P["steel"], rough=0.32, polish=0.4)
+    # колесо: нейтральный сатиновый металл — без пятен тона, шероховатее (меньше отражения неба), почти без пыли
+    bare(M["hp2_rim"], (0.30, 0.305, 0.31), rough=0.42, polish=0.0, dust=0.12, var=0.08, metal=0.9)
     bare(M["hp2_steel"], P["steel"], rough=0.36)
     bare(M["hp2_plate"], (0.38, 0.37, 0.34), rough=0.5)
     bare(M["hp2_brass"], P["brass"], rough=0.3, dust=0.5)
