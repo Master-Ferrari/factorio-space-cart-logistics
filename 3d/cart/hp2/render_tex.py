@@ -25,9 +25,16 @@ import tex  # noqa: E402
 OUT = os.path.join(HERE, "out", "render")
 EAST = -math.pi / 2
 GAME = ["field", "ring32", "single", "single_ns", "single_dg"]
-# свет: солнце с северо-запада сверху (тень вправо-вниз, как у спрайтов игры) + небо-градиент для металла
-SUN_DIR = (0.55, -0.35, -0.76)
-SUN_E, SKY_E = 3.2, 0.55
+# свет (tex_06, автор: «расположи свет строго слева под 45 градусов. плюс используй hdri карту как ту что используется
+# в тайлах»): солнце летит с запада на восток, возвышение 45°. Y = 0 — растяжка WORLD по Y направление не меняет,
+# на экране (u = x) свет идёт точно слева, тень на землю — строго вправо.
+SUN_DIR = (1.0, 0.0, -1.0)
+SUN_E = 4.4
+# HDRI — как в мире Untitled.blend (тайлы автора): Environment Texture по Generated через Mapping с нулевым
+# вращением, Background сила 1.0; подложка тайла рендерилась с AF_blur02, рельсы — с резкой «Autumn Forest».
+HDRI_DIR = os.path.normpath(os.path.join(HERE, "..", "..", "hdri"))     # файлы автора: только читаем
+HDRI = os.path.join(HDRI_DIR, "AF_blur02.exr")
+HDRI_E = 0.5
 
 
 def args():
@@ -53,7 +60,7 @@ def setup(samples):
     except Exception:
         pass
     sc.render.film_transparent = True
-    # небо: светлый верх, тёмный низ (металл отражает небо, а не пустоту)
+    # мир — HDRI автора (как у тайлов), по абсолютному пути, без копирования
     w = sc.world or bpy.data.worlds.new("World")
     sc.world = w
     try:
@@ -63,19 +70,14 @@ def setup(samples):
     nt = w.node_tree
     nt.nodes.clear()
     tc = nt.nodes.new('ShaderNodeTexCoord')
-    sep = nt.nodes.new('ShaderNodeSeparateXYZ')
-    nt.links.new(tc.outputs["Generated"], sep.inputs[0])
-    rp = nt.nodes.new('ShaderNodeValToRGB')
-    el = rp.color_ramp.elements
-    el[0].position, el[0].color = 0.40, (0.06, 0.055, 0.05, 1)
-    el[1].position, el[1].color = 0.62, (0.95, 0.96, 1.0, 1)
-    mr = nt.nodes.new('ShaderNodeMapRange')
-    nt.links.new(sep.outputs["Z"], mr.inputs["Value"])
-    mr.inputs["From Min"].default_value, mr.inputs["From Max"].default_value = -1.0, 1.0
-    nt.links.new(mr.outputs["Result"], rp.inputs["Fac"])
+    mp = nt.nodes.new('ShaderNodeMapping')
+    nt.links.new(tc.outputs["Generated"], mp.inputs["Vector"])
+    env = nt.nodes.new('ShaderNodeTexEnvironment')
+    env.image = bpy.data.images.load(HDRI, check_existing=True)
+    nt.links.new(mp.outputs["Vector"], env.inputs["Vector"])
     bg = nt.nodes.new('ShaderNodeBackground')
-    bg.inputs["Strength"].default_value = SKY_E
-    nt.links.new(rp.outputs["Color"], bg.inputs["Color"])
+    bg.inputs["Strength"].default_value = HDRI_E
+    nt.links.new(env.outputs["Color"], bg.inputs["Color"])
     o = nt.nodes.new('ShaderNodeOutputWorld')
     nt.links.new(bg.outputs["Background"], o.inputs["Surface"])
 
@@ -140,8 +142,9 @@ def main():
     for m in bpy.data.materials:
         m.use_fake_user = m.name.startswith("hp2_")
     v = view_coll()
-    if not any(o.type == 'LIGHT' for o in v.objects):
-        spring_light(K.sun("sun", v, SUN_DIR, SUN_E, 2.0), v)
+    for o in [o for o in v.objects if o.type == 'LIGHT']:
+        bpy.data.objects.remove(o, do_unlink=True)
+    spring_light(K.sun("sun", v, SUN_DIR, SUN_E, 2.0), v)
     with open(os.path.join(OUT, "frames.json"), encoding="utf-8") as f:
         frames = json.load(f)
     for view in opt["views"]:

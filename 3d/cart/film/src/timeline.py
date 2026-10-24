@@ -348,4 +348,12 @@ STEPS.append(dict(
              sheets=[F + "hp2_tex_05.jpg"],
              variants=[("hp2 tex", "hp2_tex_05")])))
 
+STEPS.append(dict(
+    user=dict(text="""расположи свет строго слева под 45 градусов
+плюс используй hdri карту как ту что используется в тайлах""", images=[]),
+    res=dict(title="Текстуры · шестой проход: свет как у тайлов",
+             note="Солнце строго слева под 45°, мир — HDRI тайлов AF_blur02.exr; сила подобрана под тон спрайта тайла.",
+             sheets=[F + "hp2_tex_06.jpg"],
+             variants=[("hp2 tex", "hp2_tex_06")])))
+
 FINAL = ""
