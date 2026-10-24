@@ -14,3 +14,10 @@
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# ── 3D: промежуточные рендеры и кэш Python ───────────────
+# Пересобираются make.py ассета; в репозитории — скрипты, .blend и листы.
+3d/**/out/render/
+3d/cart/blocking/render/
+3d/cart/blocking/r*/render/
+__pycache__/
