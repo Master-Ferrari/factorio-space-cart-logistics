@@ -19,6 +19,7 @@ import scl3d as K  # noqa: E402
 REF22 = os.path.join(HERE, "..", "film", "data", "images", "22.png")
 REF13 = os.path.join(HERE, "..", "film", "data", "images", "13.png")    # справа — ванильные сундуки на песке
 REF13_BOX = (776, 150, 1410, 520)
+REF23 = os.path.join(HERE, "..", "film", "data", "images", "23.png")    # стальной сундук крупно (~220 px на тайл)
 KEY = "T"
 DARK = (22, 24, 26, 255)
 
@@ -67,6 +68,17 @@ def main():
         s64, _, _ = C.game_view(KEY, view, frames, K.PX_GAME)
         small.append(C.panel(C.nearest(s64, 4), "каретка %s, 64 px ×4" % nm, " "))
     blocks.append(row(small))
+    # стальной сундук 23 рядом с кареткой в том же масштабе (сундук ~3.4 × 64 px/тайл на рисунке)
+    if os.path.exists(REF23):
+        H = 600
+        r23 = C.fit_h(Image.open(REF23).convert("RGBA"), H)
+        k = r23.height / 338 * 220 / 64
+        s64, _, _ = C.game_view(KEY, "single", frames, K.PX_GAME)
+        sd, _, _ = C.game_view(KEY, "single_dg", frames, K.PX_GAME)
+        up = lambda im: im.resize((round(im.width * k), round(im.height * k)), Image.Resampling.LANCZOS)  # noqa: E731
+        blocks.append(row([C.panel(r23, "референс 23: стальной сундук (ванила)"),
+                           C.panel(up(s64), "каретка 64 px, в масштабе сундука"),
+                           C.panel(up(sd), "каретка 64 px, диагональ")]))
     # сравнение с референсом 22 (ванильные машины и тайл автора): наш поезд в том же увеличении, что тайл на 22
     if os.path.exists(REF22):
         ref = Image.open(REF22).convert("RGBA")

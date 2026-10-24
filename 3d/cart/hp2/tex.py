@@ -34,11 +34,14 @@ P = dict(
     orange=(0.80, 0.30, 0.03),
     dust=(0.50, 0.20, 0.05),        # рыжая пыль
     wear_edge=0.22,                 # порог кромки для потёртости (меньше — шире полосы металла)
-    wear_amt=0.75,                  # сила потёртости
+    wear_amt=0.90,                  # сила потёртости
     chips=0.06,                     # доля сколов на ровной краске
     dust_amt=0.70,                  # максимум пыли
     dust_low=(0.22, 0.46),          # пыль сходит на нет между этими высотами (z, тайлы)
     ao_dist=0.08,
+    cav_dist=0.02,                  # узкая AO (стыки, зазоры, основания рёбер)
+    grime=(0.012, 0.007, 0.004),    # грязь в углах — тёмно-бурая
+    grime_amt=0.92,
     ao_amt=1.30,                    # насколько AO затемняет базовый цвет
     BEVEL_R=0.016,
 )
@@ -126,6 +129,10 @@ class NB:
         ao = self.n('ShaderNodeAmbientOcclusion', samples=8, only_local=True)
         ao.inputs["Distance"].default_value = P["ao_dist"]
         self.ao = ao.outputs["AO"]
+        # узкая AO по всей сцене (не только свой объект): стыки и зазоры между деталями — тёмная линия
+        cv = self.n('ShaderNodeAmbientOcclusion', samples=8, only_local=False)
+        cv.inputs["Distance"].default_value = P["cav_dist"]
+        self.cav = self.math('SUBTRACT', 1.0, cv.outputs["AO"])
         sep = self.n('ShaderNodeSeparateXYZ')
         self.link(geo.outputs["Position"], sep.inputs[0])
         self.low = self.ramp(sep.outputs["Z"], P["dust_low"][1], P["dust_low"][0])      # 1 внизу, 0 вверху
@@ -162,7 +169,10 @@ class NB:
 
 def ao_darken(nb, col, k=None):
     f = nb.math('MULTIPLY', nb.math('SUBTRACT', 1.0, nb.ao), P["ao_amt"] if k is None else k, clamp=True)
-    return nb.mix(f, col, (0.02, 0.018, 0.016))
+    col = nb.mix(f, col, (0.02, 0.018, 0.016))
+    # грязь в углах углублений и на стыках деталей: тёмно-бурая, почти чёрная (поверх широкой AO)
+    g = nb.math('MULTIPLY', nb.ramp(nb.cav, 0.02, 0.22), P["grime_amt"], clamp=True)
+    return nb.mix(g, col, P["grime"])
 
 
 def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.55, rough1=0.45, rust=0.0):
@@ -238,14 +248,15 @@ def apply():
               rust=P["rust_amt"])
     paint(M["hp2_shell"], P["body"], **st)
     paint(M["hp2_strap"], P["body"], **st)
-    paint(M["hp2_lid"], P["body"], wear=1.1, **st)
+    paint(M["hp2_lid"], tuple(v * 2.4 for v in P["body"]), wear=1.3, **st)   # дверь светлее корпуса — отдельная деталь
     paint(M["hp2_orange"], P["orange"], wear=0.6, dust=0.5)
     bare(M["hp2_web"], P["steel_dark"], rough=0.5, dust=0.8)
     # колесо: нейтральный сатиновый металл — без пятен тона, шероховатее (меньше отражения неба), почти без пыли
     bare(M["hp2_rim"], (0.30, 0.305, 0.31), rough=0.42, polish=0.0, dust=0.12, var=0.08, metal=0.9)
     bare(M["hp2_steel"], P["steel"], rough=0.36)
     bare(M["hp2_plate"], (0.38, 0.37, 0.34), rough=0.5)
-    bare(M["hp2_brass"], P["brass"], rough=0.3, dust=0.5)
+    # латунь матовее и светлее: зеркальная пружина отражала тёмное окружение и уходила в черноту
+    bare(M["hp2_brass"], (0.72, 0.47, 0.15), rough=0.48, dust=0.3, var=0.12, metal=0.45)
     rubber(M["hp2_rubber"])
     # болванка рельса для видов 3/4 — простые материалы в цвет спрайта
     for nm, col, r, m in (("hp2_ref_base", (0.03, 0.03, 0.032), 0.7, 0.3), ("hp2_ref_bed", (0.60, 0.55, 0.45), 0.6, 0.0),
