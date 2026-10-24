@@ -74,6 +74,7 @@ def mats():
         strap=K.material("hp2_strap", (0.12, 0.125, 0.13), 0.55, 0.6),
         lid=K.material("hp2_lid", (0.17, 0.175, 0.18), 0.5, 0.6),
         visor=K.material("hp2_visor", (0.17, 0.175, 0.18), 0.5, 0.6),
+        cheek=K.material("hp2_cheek", (0.075, 0.08, 0.085), 0.6, 0.6),
         rib=K.material("hp2_rib", (0.42, 0.43, 0.45), 0.4, 0.8),
         rim=K.material("hp2_rim", (0.50, 0.52, 0.55), 0.35, 0.9),
         web=K.material("hp2_web", (0.045, 0.045, 0.05), 0.6, 0.5),
@@ -428,7 +429,8 @@ RECESS = "recess"      # атрибут точки 0..1: ручное затем
 def panel_mask(obj, it=4):
     """Филёнки торцов (tex_08, синяя зона рисунка 25): атрибуты точки для детальной грязи в tex.py.
     panel       — 1 на утопленной филёнке торца (с выемкой и пого-контактами), край мягкий;
-    panel_grime — 0..1: к низу филёнки и к её кромкам/углам темнее (ровный градиент, без шума)."""
+    panel_grime — 0..1, tex_09 («грязь же располагать нужно преимущественно по краям»): у рамки филёнки, в углах,
+                  у нижней кромки, вокруг выемки хвата и пого-контактов; середина почти чистая."""
     poly = offset_poly(FACE, PANEL_M)
     lines = []
     for i in range(len(poly)):
@@ -436,6 +438,11 @@ def panel_mask(obj, it=4):
         lines.append((a, b))
     vmax = max(p[1] for p in poly)
     vmin = min(p[1] for p in poly)
+    v0, v1 = GRIP_V
+    gpoly = [(-GRIP_HW, v0), (GRIP_HW, v0), (grip_hw(v0 + GRIP_CH), v0 + GRIP_CH), (grip_hw(v1), v1),
+             (-grip_hw(v1), v1), (-grip_hw(v0 + GRIP_CH), v0 + GRIP_CH)]
+    grip_lines = [(Vector(gpoly[i]), Vector(gpoly[(i + 1) % len(gpoly)])) for i in range(len(gpoly))]
+    pins = [Vector((x, 0.236)) for x in (-0.075, 0.075)]                 # пого-контакты (build_pins)
     me = obj.data
     bm = bmesh.new()
     bm.from_mesh(me)
@@ -462,9 +469,11 @@ def panel_mask(obj, it=4):
         if inside and ww < 0.002 and ww > -0.08:
             dist = min(seg_dist(p2, a, b) for a, b in lines)
             pan.append(1.0)
-            low = sstep(vmin, vmax, p2.y) ** 1.5
-            edge = 1 - sstep(0.0, 0.035, dist)
-            gri.append(min(1.0, 0.75 * low + 0.6 * edge * (0.4 + 0.6 * low)))
+            low = sstep(vmin, vmax, p2.y)
+            edge = 1 - sstep(0.0, 0.032 + 0.018 * low, dist)                  # у нижней кромки полоса шире
+            grip = 1 - sstep(0.0, 0.026, min(seg_dist(p2, a, b) for a, b in grip_lines))
+            pin = max(1 - sstep(0.030, 0.058, (p2 - pc).length) for pc in pins)
+            gri.append(min(1.0, max(edge, 0.8 * grip, 0.8 * pin) + 0.15 * low))
         else:
             pan.append(0.0)
             gri.append(0.0)
@@ -852,7 +861,7 @@ def main():
         out.append(finish(rod, "pin_" + side, coll, body, M["steel"], origin=P))
         out.append(finish(nuts, "pin_nuts_" + side, coll, body, M["brass"], origin=P, angle=40))
         ch, tabs, plates, rivets = build_cheek(sx, M)
-        cheek = finish(ch, "cheek_" + side, coll, body, M["shell"], origin=P)        # качается вокруг пальца (ось Y)
+        cheek = finish(ch, "cheek_" + side, coll, body, M["cheek"], origin=P)        # качается вокруг пальца (ось Y)
         out.append(cheek)
         out.append(finish(tabs, "tabs_" + side, coll, cheek, M["orange"], origin=P, angle=40))
         out.append(finish(plates, "tab_plates_" + side, coll, cheek, M["plate"], origin=P, angle=40))

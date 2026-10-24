@@ -21,15 +21,16 @@ P = dict(
     paint=(0.53, 0.49, 0.415),       # кремовая краска (проход tex_01, отвергнута: «забей на белую краску»)
     body=(0.046, 0.044, 0.042),     # tex_02: тёмная воронёная сталь с тёплым бурым отливом — как стальной сундук
     paint_grey=(0.050, 0.050, 0.050),  # tex_05: «цвет краски сделай серее» — нейтральный серый, без бурого
-    paint_top=(0.36, 0.36, 0.355),     # tex_08: «высветли красную зону» (было 0.20)     # tex_05: «на верхних поверхностях краска корпуса должна быть белее» — выцвела
+    paint_top=(0.28, 0.28, 0.276),     # tex_08 0.36 «перестарался» -> tex_09 между 0.20 и 0.36     # tex_05: «на верхних поверхностях краска корпуса должна быть белее» — выцвела
     paint_top_nz=(0.45, 0.80),         # tex_08: весь верх — крышка, скаты, рёбра (было 0.70–0.98)         # маска верха: нормаль Z, плавно (боковые темнее, верх светлее)
     paint_top_metal=0.35,              # выцветшая краска наверху — меньше металла (иначе база уходит в отражение)
     visor=(0.026, 0.026, 0.026),       # накладка над пружиной — отдельная деталь, темнее корпуса (светлые заклёпки на тёмном)
     recess=(0.0025, 0.0022, 0.002),     # ручное затемнение выемок (атрибут recess из build.py)
     recess_amt=0.95,
-    panel_dirt=(0.014, 0.011, 0.008),  # tex_08: грязь филёнок торцов (синяя зона рисунка 25): к низу и углам
-    panel_dust=(0.13, 0.10, 0.07),     # светлые пыльные разводы на филёнке
-    panel_streak=(0.012, 0.009, 0.006),  # потёки вниз по скату
+    panel_dirt=(0.034, 0.031, 0.026),  # tex_09: грязь филёнок — серо-коричневая, землистая, не рыжая; по краям
+    panel_dirt_amt=0.85,
+    panel_streak=(0.030, 0.028, 0.024),  # потёки вниз — короткие и бледные
+    panel_streak_amt=0.35,
     body_metal=0.75, body_rough=0.48,
     edge_steel=(0.78, 0.76, 0.73),  # кромки, гибы, рёбра — затёрты до блеска металла (рейки и обвязка сундука)
     rust=(0.16, 0.055, 0.02),       # ржавчина в швах
@@ -197,27 +198,24 @@ def ao_darken(nb, col, k=None):
 
 
 def panel_dirt(nb, c):
-    """«текстуру в синей зоне сделай детализированно грязнее»: на филёнках торцов (атрибут panel из build.py) —
-    градиент к низу и углам (panel_grime), потёки вниз по скату (шум, вытянутый вдоль ската: частый по x, редкий
-    вдоль y/z объекта), пятна и разводы. Масштаб шума — чтобы на 256 px читалось, на 64 px давало пятнистый тон."""
+    """Филёнки торцов (синяя зона рисунка 25). tex_09: «ты сделал ржавчину а не грязь. грязь же располагать нужно
+    преимущественно по краям» — база та же серая краска, грязь серо-коричневая по panel_grime (рамка, углы, низ,
+    вокруг выемки и пого-контактов), край грязи мягкий, рваный лёгким шумом; потёки короткие и бледные; сколы редкие."""
     pa = nb.n('ShaderNodeAttribute', attribute_name="panel", attribute_type='GEOMETRY').outputs["Fac"]
     gr = nb.n('ShaderNodeAttribute', attribute_name="panel_grime", attribute_type='GEOMETRY').outputs["Fac"]
+    g = nb.math('ADD', gr, nb.math('MULTIPLY', nb.math('SUBTRACT', nb.noise(26.0, 5.0, 0.6), 0.5), 0.45))
+    g = nb.math('MULTIPLY', nb.ramp(g, 0.30, 0.80), nb.math('MULTIPLY', pa, P["panel_dirt_amt"]), clamp=True)
+    c = nb.mix(g, c, P["panel_dirt"])
     mp = nb.n('ShaderNodeMapping')
     nb.link(nb.obj, mp.inputs["Vector"])
-    mp.inputs["Scale"].default_value = (70.0, 5.0, 5.0)                 # потёки: полосы вдоль ската
-    st = nb.noise(1.0, 5.0, 0.6, coords=mp.outputs["Vector"])
-    st = nb.ramp(st, 0.50, 0.70)
-    # потёки сильнее книзу (стекают) и рвутся по длине
-    st = nb.math('MULTIPLY', st, nb.math('ADD', 0.35, gr))
-    st = nb.math('MULTIPLY', st, nb.ramp(nb.noise(9.0, 3.0, 0.5), 0.35, 0.6))
-    spots = nb.ramp(nb.noise(16.0, 6.0, 0.65), 0.52, 0.72)               # пятна и разводы
-    c = nb.mix(nb.math('MULTIPLY', nb.math('MULTIPLY', gr, 0.85), pa, clamp=True), c, P["panel_dirt"])
-    c = nb.mix(nb.math('MULTIPLY', nb.math('MULTIPLY', spots, 0.55), pa, clamp=True), c, P["panel_dust"])
-    c = nb.mix(nb.math('MULTIPLY', st, nb.math('MULTIPLY', pa, 0.9), clamp=True), c, P["panel_streak"])
-    # мелкие сколы и царапины до светлого металла — только на филёнке
-    ch = nb.ramp(nb.noise(110.0, 3.0, 0.6), 0.70, 0.73)
-    ch = nb.math('MULTIPLY', nb.math('MULTIPLY', ch, nb.ramp(nb.noise(14.0, 2.0), 0.45, 0.6)), pa, clamp=True)
-    return nb.mix(nb.math('MULTIPLY', ch, 0.8), c, P["edge_steel"])
+    mp.inputs["Scale"].default_value = (70.0, 9.0, 9.0)                 # потёки: полосы вдоль ската, короткие
+    st = nb.ramp(nb.noise(1.0, 4.0, 0.6, coords=mp.outputs["Vector"]), 0.55, 0.72)
+    st = nb.math('MULTIPLY', st, nb.ramp(gr, 0.15, 0.55))                # стекают от краёв, середина чистая
+    st = nb.math('MULTIPLY', st, nb.math('MULTIPLY', pa, P["panel_streak_amt"]), clamp=True)
+    c = nb.mix(st, c, P["panel_streak"])
+    ch = nb.ramp(nb.noise(110.0, 3.0, 0.6), 0.71, 0.73)
+    ch = nb.math('MULTIPLY', nb.math('MULTIPLY', ch, gr), nb.math('MULTIPLY', pa, 0.4), clamp=True)
+    return nb.mix(ch, c, P["edge_steel"])
 
 
 def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.55, rough1=0.45, rust=0.0, top=None):
@@ -243,7 +241,8 @@ def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.
         nb.link(nb.n('ShaderNodeNewGeometry').outputs["Normal"], sn.inputs[0])
         top_m = nb.ramp(sn.outputs["Z"], *P["paint_top_nz"])
         pa = nb.n('ShaderNodeAttribute', attribute_name="panel", attribute_type='GEOMETRY').outputs["Fac"]
-        top_m = nb.math('MULTIPLY', top_m, nb.math('SUBTRACT', 1.0, pa))          # филёнки торцов не высветляются
+        nb.pa = pa
+        top_m = nb.math('MULTIPLY', top_m, nb.math('SUBTRACT', 1.0, nb.math('MULTIPLY', pa, 0.45)))  # филёнки на тон темнее
         sz = nb.n('ShaderNodeSeparateXYZ')
         nb.link(nb.n('ShaderNodeNewGeometry').outputs["Position"], sz.inputs[0])
         top_m = nb.math('MULTIPLY', top_m, nb.ramp(sz.outputs["Z"], 0.40, 0.47))   # только корпус (щёки и пояс ниже)
@@ -271,13 +270,16 @@ def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.
         rm = nb.math('MULTIPLY', nb.ramp(occl, 0.15, 0.55), nb.ramp(nb.noise(30.0, 6.0, 0.6), 0.40, 0.60))
         if top_m is not None:
             rm = nb.math('MULTIPLY', rm, nb.math('SUBTRACT', 1.0, nb.math('MULTIPLY', top_m, 0.85)))   # светлый верх чище
+            rm = nb.math('MULTIPLY', rm, nb.math('SUBTRACT', 1.0, nb.pa))          # на филёнках — грязь, не ржавчина
         c = nb.mix(nb.math('MULTIPLY', rm, rust), c, P["rust"])
         pm = nb.ramp(nb.noise(7.0, 4.0, 0.6), 0.58, 0.72)
         if top_m is not None:
-            pm = nb.math('MULTIPLY', pm, nb.math('SUBTRACT', 1.0, top_m))
+            pm = nb.math('MULTIPLY', pm, nb.math('SUBTRACT', 1.0, nb.math('MAXIMUM', top_m, nb.pa)))
         c = nb.mix(nb.math('MULTIPLY', pm, 0.5 * rust), c, P["patina"])
     c = nb.mix(wear_m, c, metal_col)
     d = nb.dust_mask(dust)
+    if top_m is not None:
+        d = nb.math('MULTIPLY', d, nb.math('SUBTRACT', 1.0, nb.math('MULTIPLY', nb.pa, 0.85)))   # рыжей пыли на филёнке нет
     c = nb.mix(d, c, P["dust"])
     c = ao_darken(nb, c)
     rough = nb.mixf(wear_m, rough0, rough1)
@@ -321,6 +323,9 @@ def apply():
     paint(M["hp2_lid"], tuple(v * 2.4 for v in P["paint_grey"]), wear=1.3, top=tuple(v * 0.85 for v in P["paint_top"]), **st)
     # накладка над пружиной — красная зона рисунка 25: тоже светлая, чуть темнее крышки, отделена тёмным швом
     paint(M["hp2_visor"], P["visor"], top=tuple(v * 0.8 for v in P["paint_top"]), wear=1.3, **st)
+    # щёки — своя краска (tex_09: «нижняя планка» — отбортовка щеки — была белой от потёртости тонких кромок и
+    # высветления верха): общий серый тон, без светлого верха, потёртость слабее
+    paint(M["hp2_cheek"], P["paint_grey"], wear=0.35, **st)
     paint(M["hp2_orange"], P["orange"], wear=0.6, dust=0.5)
     bare(M["hp2_web"], P["steel_dark"], rough=0.5, dust=0.8)
     # колесо: нейтральный сатиновый металл — без пятен тона, шероховатее (меньше отражения неба), почти без пыли
