@@ -418,10 +418,65 @@ def build_body(M):
         return 0
     paint(body, [M["shell"], M["strap"], M["web"]], cls)
     recess_mask(body)
+    panel_mask(body)
     return body
 
 
 RECESS = "recess"      # атрибут точки 0..1: ручное затемнение выемок хвата и карманов пружин (tex.py)
+
+
+def panel_mask(obj, it=4):
+    """Филёнки торцов (tex_08, синяя зона рисунка 25): атрибуты точки для детальной грязи в tex.py.
+    panel       — 1 на утопленной филёнке торца (с выемкой и пого-контактами), край мягкий;
+    panel_grime — 0..1: к низу филёнки и к её кромкам/углам темнее (ровный градиент, без шума)."""
+    poly = offset_poly(FACE, PANEL_M)
+    lines = []
+    for i in range(len(poly)):
+        a, b = Vector(poly[i]), Vector(poly[(i + 1) % len(poly)])
+        lines.append((a, b))
+    vmax = max(p[1] for p in poly)
+    vmin = min(p[1] for p in poly)
+    me = obj.data
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.verts.ensure_lookup_table()
+
+    def sstep(a, b, x):
+        t = min(max((x - a) / (b - a), 0.0), 1.0)
+        return t * t * (3 - 2 * t)
+
+    def seg_dist(p, a, b):
+        ab = b - a
+        t = min(max((p - a).dot(ab) / ab.length_squared, 0.0), 1.0)
+        return (p - (a + ab * t)).length
+    pan, gri = [], []
+    for v in bm.verts:
+        c = v.co
+        sy = 1 if c.y > 0 else -1
+        nr = Vector((0, -sy * END_S.z, END_S.y))
+        dn = Vector((0, sy * END_S.y, END_S.z))
+        d = c - Vector((0, sy * DECK_HY, Z_TOP))
+        p2 = Vector((c.x, d.dot(dn)))
+        ww = d.dot(nr)
+        inside = all((b - a).x * (p2 - a).y - (b - a).y * (p2 - a).x >= 0 for a, b in lines) or             all((b - a).x * (p2 - a).y - (b - a).y * (p2 - a).x <= 0 for a, b in lines)
+        if inside and ww < 0.002 and ww > -0.08:
+            dist = min(seg_dist(p2, a, b) for a, b in lines)
+            pan.append(1.0)
+            low = sstep(vmin, vmax, p2.y) ** 1.5
+            edge = 1 - sstep(0.0, 0.035, dist)
+            gri.append(min(1.0, 0.75 * low + 0.6 * edge * (0.4 + 0.6 * low)))
+        else:
+            pan.append(0.0)
+            gri.append(0.0)
+    adj = [[e.other_vert(v).index for e in v.link_edges] for v in bm.verts]
+    for _ in range(it):
+        pan = [0.5 * pan[i] + 0.5 * sum(pan[j] for j in adj[i]) / max(len(adj[i]), 1) for i in range(len(pan))]
+        gri = [0.5 * gri[i] + 0.5 * sum(gri[j] for j in adj[i]) / max(len(adj[i]), 1) for i in range(len(gri))]
+    bm.free()
+    for nm, val in (("panel", pan), ("panel_grime", gri)):
+        at = me.attributes.new(nm, 'FLOAT', 'POINT')
+        at.data.foreach_set("value", val)
+    print("panel: %d verts" % sum(1 for x in pan if x > 0.5))
 
 
 def recess_mask(obj, it=6):

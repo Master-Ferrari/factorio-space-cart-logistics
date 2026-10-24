@@ -363,4 +363,11 @@ STEPS.append(dict(
              sheets=[F + "hp2_tex_07.jpg"],
              variants=[("hp2 tex", "hp2_tex_07")])))
 
+STEPS.append(dict(
+    user=dict(text="""высветли красную зону, текстуру в синей зоне сделай детализированно грязнее""", images=[IMG + "25.png"]),
+    res=dict(title="Текстуры · восьмой проход",
+             note="Верх корпуса светло-серый почти без ржавчины; торцевые филёнки — потёки, разводы, сколы, затемнение к низу.",
+             sheets=[F + "hp2_tex_08.jpg"],
+             variants=[("hp2 tex", "hp2_tex_08")])))
+
 FINAL = ""
