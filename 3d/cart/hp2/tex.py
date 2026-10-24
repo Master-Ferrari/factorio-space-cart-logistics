@@ -18,7 +18,13 @@ import os
 import bpy
 
 P = dict(
-    paint=(0.53, 0.49, 0.415),       # кремовая краска (линейный RGB), в тон ложементам тайла
+    paint=(0.53, 0.49, 0.415),       # кремовая краска (проход tex_01, отвергнута: «забей на белую краску»)
+    body=(0.068, 0.062, 0.056),     # tex_02: тёмная воронёная сталь с тёплым бурым отливом — как стальной сундук
+    body_metal=0.75, body_rough=0.48,
+    edge_steel=(0.62, 0.60, 0.57),  # кромки, гибы, рёбра — затёрты до блеска металла (рейки и обвязка сундука)
+    rust=(0.16, 0.055, 0.02),       # ржавчина в швах
+    patina=(0.06, 0.075, 0.05),     # зеленоватая патина пятнами
+    rust_amt=0.45,
     paint_var=0.09,                 # пятнистость тона краски
     door=(0.20, 0.205, 0.21),       # дверь-люк — тёмная крашеная сталь (читается люком на светлом корпусе)
     steel=(0.56, 0.57, 0.58),       # голый металл (колесо, бампер)
@@ -27,7 +33,7 @@ P = dict(
     brass=(0.80, 0.55, 0.22),
     orange=(0.80, 0.30, 0.03),
     dust=(0.50, 0.20, 0.05),        # рыжая пыль
-    wear_edge=0.30,                 # порог кромки для потёртости (меньше — шире полосы металла)
+    wear_edge=0.26,                 # порог кромки для потёртости (меньше — шире полосы металла)
     wear_amt=0.75,                  # сила потёртости
     chips=0.06,                     # доля сколов на ровной краске
     dust_amt=0.70,                  # максимум пыли
@@ -159,7 +165,7 @@ def ao_darken(nb, col, k=None):
     return nb.mix(f, col, (0.02, 0.018, 0.016))
 
 
-def paint(mat, base, metal_under=None, wear=1.0, dust=1.0):
+def paint(mat, base, metal_under=None, wear=1.0, dust=1.0, metal0=0.0, rough0=0.55, rough1=0.45, rust=0.0):
     """Краска по стали: пятнистый тон, потёртости кромок до металла, редкие сколы, пыль, AO."""
     nb = NB(mat)
     nb.masks()
@@ -185,13 +191,20 @@ def paint(mat, base, metal_under=None, wear=1.0, dust=1.0):
     wear_m = nb.math('MULTIPLY', nb.math('MAXIMUM', wear_m, chips), P["wear_amt"] * wear, clamp=True)
     nb.wear = wear_m
     metal_col = metal_under or P["steel_under"]
+    if rust:
+        # ржавчина в швах и впадинах (AO), патина пятнами по ровному — тёплые бурые оттенки сундука
+        occl = nb.math('SUBTRACT', 1.0, nb.ao)
+        rm = nb.math('MULTIPLY', nb.ramp(occl, 0.15, 0.55), nb.ramp(nb.noise(30.0, 6.0, 0.6), 0.40, 0.60))
+        c = nb.mix(nb.math('MULTIPLY', rm, rust), c, P["rust"])
+        pm = nb.ramp(nb.noise(7.0, 4.0, 0.6), 0.58, 0.72)
+        c = nb.mix(nb.math('MULTIPLY', pm, 0.5 * rust), c, P["patina"])
     c = nb.mix(wear_m, c, metal_col)
     d = nb.dust_mask(dust)
     c = nb.mix(d, c, P["dust"])
     c = ao_darken(nb, c)
-    rough = nb.mixf(wear_m, 0.55, 0.45)
+    rough = nb.mixf(wear_m, rough0, rough1)
     rough = nb.mixf(d, rough, 0.85)
-    metal = nb.mixf(wear_m, 0.0, 1.0)
+    metal = nb.mixf(d, nb.mixf(wear_m, metal0, 1.0), 0.0)
     nb.out(c, rough, metal)
 
 
@@ -221,9 +234,11 @@ def rubber(mat):
 
 def apply():
     M = bpy.data.materials
-    paint(M["hp2_shell"], P["paint"])
-    paint(M["hp2_strap"], P["paint"])
-    paint(M["hp2_lid"], P["door"], wear=0.8)
+    st = dict(metal_under=P["edge_steel"], metal0=P["body_metal"], rough0=P["body_rough"], rough1=0.28,
+              rust=P["rust_amt"])
+    paint(M["hp2_shell"], P["body"], **st)
+    paint(M["hp2_strap"], P["body"], **st)
+    paint(M["hp2_lid"], P["body"], wear=1.1, **st)
     paint(M["hp2_orange"], P["orange"], wear=0.6, dust=0.5)
     bare(M["hp2_web"], P["steel_dark"], rough=0.5, dust=0.8)
     bare(M["hp2_rim"], P["steel"], rough=0.32, polish=0.4)

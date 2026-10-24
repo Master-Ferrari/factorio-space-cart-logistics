@@ -17,6 +17,8 @@ import compose as C  # noqa: E402
 import scl3d as K  # noqa: E402
 
 REF22 = os.path.join(HERE, "..", "film", "data", "images", "22.png")
+REF13 = os.path.join(HERE, "..", "film", "data", "images", "13.png")    # справа — ванильные сундуки на песке
+REF13_BOX = (776, 150, 1410, 520)
 KEY = "T"
 DARK = (22, 24, 26, 255)
 
@@ -73,12 +75,16 @@ def main():
         x0, y0 = fr256.px(-0.6, 0.6, 0)
         f64c = field64.crop((int(x0 / 4), int(y0 / 4), int(x0 / 4) + int(H / k), int(y0 / 4) + int(H / k)))
         ours = f64c.resize((round(f64c.width * k), round(f64c.height * k)), Image.Resampling.LANCZOS)
-        blocks.append(row([C.panel(C.fit_h(ref, H), "референс 22: ванила Space Age и тайл автора (справа)"),
-                           C.panel(ours, "hp2 с материалами, 64 px/тайл в том же увеличении")]))
+        parts = [C.panel(ours, "hp2 с материалами, 64 px/тайл, ×3.2")]
+        if os.path.exists(REF13):
+            r13 = Image.open(REF13).convert("RGBA").crop(REF13_BOX)
+            parts.append(C.panel(C.fit_h(r13, H), "референс 13: стальной сундук (слева) на песке"))
+        parts.append(C.panel(C.fit_h(ref, H), "референс 22: ванила Space Age и тайл автора (справа)"))
+        blocks.append(row(parts))
     W = max(b.width for b in blocks) + 24
     S = Image.new("RGBA", (W, 56 + sum(b.height + 14 for b in blocks)), DARK)
-    C.label(S, "Каретка hp2 — генеративные материалы (Cycles): кремовая краска, потёртости кромок, рыжая пыль, AO; "
-               "колёса и бампер — голый металл", 24, (12, 12))
+    C.label(S, "Каретка hp2 — генеративные материалы (Cycles): тёмная сталь как у стального сундука, кромки затёрты до "
+               "металла, ржавчина в швах, рыжая пыль, AO; колёса и бампер — голый металл", 24, (12, 12))
     y = 56
     for b in blocks:
         S.alpha_composite(b, (12, y))
