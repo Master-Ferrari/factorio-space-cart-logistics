@@ -28,9 +28,10 @@ P = dict(
     recess=(0.0025, 0.0022, 0.002),     # ручное затемнение выемок (атрибут recess из build.py)
     recess_amt=0.95,
     panel_dirt=(0.034, 0.031, 0.026),  # tex_09: грязь филёнок — серо-коричневая, землистая, не рыжая; по краям
-    panel_dirt_amt=0.85,
-    panel_streak=(0.030, 0.028, 0.024),  # потёки вниз — короткие и бледные
-    panel_streak_amt=0.35,
+    panel_dirt_amt=0.92,
+    panel_streak=(0.016, 0.014, 0.011),  # tex_10: тёмная сердцевина затёков и скопления у низа
+    panel_streak_amt=0.6,
+    panel_wipe=(0.30, 0.29, 0.27),       # светлые дуги протирания (светлее базы филёнки)
     body_metal=0.75, body_rough=0.48,
     edge_steel=(0.78, 0.76, 0.73),  # кромки, гибы, рёбра — затёрты до блеска металла (рейки и обвязка сундука)
     rust=(0.16, 0.055, 0.02),       # ржавчина в швах
@@ -197,22 +198,72 @@ def ao_darken(nb, col, k=None):
     return nb.mix(g, col, P["grime"])
 
 
-def panel_dirt(nb, c):
-    """Филёнки торцов (синяя зона рисунка 25). tex_09: «ты сделал ржавчину а не грязь. грязь же располагать нужно
-    преимущественно по краям» — база та же серая краска, грязь серо-коричневая по panel_grime (рамка, углы, низ,
-    вокруг выемки и пого-контактов), край грязи мягкий, рваный лёгким шумом; потёки короткие и бледные; сколы редкие."""
-    pa = nb.n('ShaderNodeAttribute', attribute_name="panel", attribute_type='GEOMETRY').outputs["Fac"]
-    gr = nb.n('ShaderNodeAttribute', attribute_name="panel_grime", attribute_type='GEOMETRY').outputs["Fac"]
-    g = nb.math('ADD', gr, nb.math('MULTIPLY', nb.math('SUBTRACT', nb.noise(26.0, 5.0, 0.6), 0.5), 0.45))
-    g = nb.math('MULTIPLY', nb.ramp(g, 0.30, 0.80), nb.math('MULTIPLY', pa, P["panel_dirt_amt"]), clamp=True)
-    c = nb.mix(g, c, P["panel_dirt"])
+def _mapped(nb, scale):
     mp = nb.n('ShaderNodeMapping')
     nb.link(nb.obj, mp.inputs["Vector"])
-    mp.inputs["Scale"].default_value = (70.0, 9.0, 9.0)                 # потёки: полосы вдоль ската, короткие
-    st = nb.ramp(nb.noise(1.0, 4.0, 0.6, coords=mp.outputs["Vector"]), 0.55, 0.72)
-    st = nb.math('MULTIPLY', st, nb.ramp(gr, 0.15, 0.55))                # стекают от краёв, середина чистая
-    st = nb.math('MULTIPLY', st, nb.math('MULTIPLY', pa, P["panel_streak_amt"]), clamp=True)
-    c = nb.mix(st, c, P["panel_streak"])
+    mp.inputs["Scale"].default_value = scale
+    return mp.outputs["Vector"]
+
+
+def panel_dirt(nb, c):
+    """Филёнки торцов (синяя зона рисунка 25). tex_10: «больше грязи более сложной формы на тёмных панелях».
+    Атрибуты build.py: panel (маска), panel_grime (края), panel_v (вниз по скату, BU: панель 0.02–0.29, контакты 0.236).
+    Слои грязи (серо-коричневая, землистая), края каждого рвутся крупным + мелким шумом:
+      затёки от верхней рамки — столбцы по x (шум только от x), длина у каждого своя;
+      затёки от пого-контактов — вниз от контакта, короткие;
+      скопление у нижней кромки с изъеденным верхним краем;
+      пятна и брызги, больше в нижней трети; кайма у рамки и вокруг выемки — рваная;
+      светлые дуги протирания поверх."""
+    A = lambda nm: nb.n('ShaderNodeAttribute', attribute_name=nm, attribute_type='GEOMETRY').outputs["Fac"]  # noqa: E731
+    pa, gr, pv = A("panel"), A("panel_grime"), A("panel_v")
+    nbig = nb.noise(11.0, 3.0, 0.55)
+    nfine = nb.noise(70.0, 4.0, 0.6)
+    brk = nb.math('ADD', nb.math('MULTIPLY', nb.math('SUBTRACT', nbig, 0.5), 0.9),
+                  nb.math('MULTIPLY', nb.math('SUBTRACT', nfine, 0.5), 0.5))           # двухмасштабный разрыв краёв
+    # затёки от верхней рамки: редкие столбцы по x, длина столбца — свой шум (0.01..0.08 BU вниз)
+    col = nb.noise(1.0, 2.0, 0.5, coords=_mapped(nb, (32.0, 0.0, 0.0)))
+    col = nb.ramp(col, 0.54, 0.62)
+    ln = nb.math('ADD', 0.01, nb.math('MULTIPLY', nb.ramp(nb.noise(1.0, 1.0, 0.5, coords=_mapped(nb, (17.0, 0.0, 0.0))), 0.3, 0.7), 0.07))
+    pvb = nb.math('ADD', pv, nb.math('MULTIPLY', brk, 0.02))
+    run = nb.ramp(nb.math('SUBTRACT', nb.math('ADD', ln, 0.02), pvb), 0.0, 0.05)
+    drip = nb.math('MULTIPLY', col, run)
+    # затёки от нижней кромки выемки хвата (v 0.144) вниз — грязь стекает с губы выемки, длина своя у столбца
+    col2 = nb.ramp(nb.noise(1.0, 2.0, 0.5, coords=_mapped(nb, (27.0, 0.0, 0.0))), 0.53, 0.61)
+    ln2 = nb.math('ADD', 0.005, nb.math('MULTIPLY', nb.ramp(nb.noise(1.0, 1.0, 0.5, coords=_mapped(nb, (13.0, 0.0, 0.0))), 0.3, 0.7), 0.07))
+    run2 = nb.math('MULTIPLY', nb.ramp(nb.math('SUBTRACT', nb.math('ADD', ln2, 0.145), pvb), 0.0, 0.04), nb.ramp(pv, 0.140, 0.150))
+    drip = nb.math('MAXIMUM', drip, nb.math('MULTIPLY', col2, run2))
+    rec = A("recess")
+    drip = nb.math('MULTIPLY', drip, nb.math('SUBTRACT', 1.0, rec), clamp=True)     # внутри выемки — своё затемнение
+    # затёки от пого-контактов (x = ±0.075, v = 0.236): узкая полоса вниз от контакта
+    sx = nb.n('ShaderNodeSeparateXYZ')
+    nb.link(nb.obj, sx.inputs[0])
+    ax = nb.math('ABSOLUTE', nb.math('SUBTRACT', nb.math('ABSOLUTE', sx.outputs["X"]), 0.075))
+    pin = nb.math('MULTIPLY', nb.ramp(ax, 0.024, 0.010), nb.ramp(pv, 0.245, 0.255))
+    drip = nb.math('MAXIMUM', drip, nb.math('MULTIPLY', pin, nb.ramp(nfine, 0.30, 0.55)))
+    # скопление у нижней кромки: верхний край изъеден
+    bot = nb.ramp(nb.math('ADD', pv, nb.math('MULTIPLY', brk, 0.05)), 0.235, 0.265)
+    # пятна и брызги: крупные + мелкие, больше в нижней трети
+    lower = nb.math('ADD', 0.25, nb.math('MULTIPLY', nb.ramp(pv, 0.12, 0.24), 0.75))
+    sp_big = nb.ramp(nb.noise(19.0, 4.0, 0.65), 0.57, 0.64)
+    sp_small = nb.ramp(nb.noise(85.0, 2.0, 0.5), 0.66, 0.70)
+    spots = nb.math('MULTIPLY', nb.math('MAXIMUM', sp_big, sp_small), lower)
+    # кайма у рамки, выемки, контактов — рваная, не ровная
+    rim = nb.ramp(nb.math('ADD', gr, nb.math('MULTIPLY', brk, 0.6)), 0.35, 0.70)
+    m = nb.math('MAXIMUM', nb.math('MAXIMUM', rim, bot), nb.math('MAXIMUM', spots, nb.math('MULTIPLY', drip, 0.85)))
+    m = nb.math('MULTIPLY', m, nb.math('MULTIPLY', pa, P["panel_dirt_amt"]), clamp=True)
+    c = nb.mix(m, c, P["panel_dirt"])
+    # тёмная сердцевина затёков и скопления (два тона грязи — форма читается и на 64 px)
+    core = nb.math('MULTIPLY', nb.math('MAXIMUM', nb.math('MULTIPLY', drip, nb.ramp(nfine, 0.4, 0.7)), nb.math('MULTIPLY', bot, 0.7)),
+                   nb.math('MULTIPLY', pa, P["panel_streak_amt"]), clamp=True)
+    c = nb.mix(core, c, P["panel_streak"])
+    # светлые дуги протирания поверх грязи
+    wv = nb.n('ShaderNodeTexWave', wave_type='RINGS')
+    wv.inputs["Scale"].default_value = 9.0
+    wv.inputs["Distortion"].default_value = 3.0
+    nb.link(_mapped(nb, (1.0, 1.0, 1.0)), wv.inputs["Vector"])
+    arcs = nb.math('MULTIPLY', nb.ramp(wv.outputs["Fac"], 0.90, 0.98), nb.ramp(nbig, 0.58, 0.72))
+    arcs = nb.math('MULTIPLY', arcs, nb.math('MULTIPLY', m, 0.35), clamp=True)
+    c = nb.mix(arcs, c, P["panel_wipe"])
     ch = nb.ramp(nb.noise(110.0, 3.0, 0.6), 0.71, 0.73)
     ch = nb.math('MULTIPLY', nb.math('MULTIPLY', ch, gr), nb.math('MULTIPLY', pa, 0.4), clamp=True)
     return nb.mix(ch, c, P["edge_steel"])
@@ -317,10 +368,12 @@ def apply():
     M = bpy.data.materials
     st = dict(metal_under=P["edge_steel"], metal0=P["body_metal"], rough0=P["body_rough"], rough1=0.28,
               rust=P["rust_amt"])
-    paint(M["hp2_shell"], P["paint_grey"], top=P["paint_top"], **st)
-    paint(M["hp2_strap"], P["paint_grey"], top=P["paint_top"], **st)
+    # tex_10: бурые пятна ржавчины на двери и бурая полоса на нижнем поясе убраны — корпус без ржавчины, пыли меньше
+    st = dict(st, rust=0.0)
+    paint(M["hp2_shell"], P["paint_grey"], top=P["paint_top"], dust=0.35, **st)
+    paint(M["hp2_strap"], P["paint_grey"], top=P["paint_top"], dust=0.35, **st)
     # дверь — в красной зоне рисунка 25: светлая, чуть темнее крышки (отдельная деталь)
-    paint(M["hp2_lid"], tuple(v * 2.4 for v in P["paint_grey"]), wear=1.3, top=tuple(v * 0.85 for v in P["paint_top"]), **st)
+    paint(M["hp2_lid"], tuple(v * 2.4 for v in P["paint_grey"]), wear=1.3, dust=0.35, top=tuple(v * 0.85 for v in P["paint_top"]), **st)
     # накладка над пружиной — красная зона рисунка 25: тоже светлая, чуть темнее крышки, отделена тёмным швом
     paint(M["hp2_visor"], P["visor"], top=tuple(v * 0.8 for v in P["paint_top"]), wear=1.3, **st)
     # щёки — своя краска (tex_09: «нижняя планка» — отбортовка щеки — была белой от потёртости тонких кромок и

@@ -379,4 +379,11 @@ STEPS.append(dict(
              sheets=[F + "hp2_tex_09.jpg"],
              variants=[("hp2 tex", "hp2_tex_09")])))
 
+STEPS.append(dict(
+    user=dict(text="""больше грязи более сложной формы на тёмных панелях""", images=[]),
+    res=dict(title="Текстуры · десятый проход",
+             note="На филёнках затёки разной длины, рваные пятна и брызги, изъеденное скопление у нижней кромки; старая ржавчина убрана.",
+             sheets=[F + "hp2_tex_10.jpg"],
+             variants=[("hp2 tex", "hp2_tex_10")])))
+
 FINAL = ""

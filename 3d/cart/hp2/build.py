@@ -429,6 +429,7 @@ RECESS = "recess"      # атрибут точки 0..1: ручное затем
 def panel_mask(obj, it=4):
     """Филёнки торцов (tex_08, синяя зона рисунка 25): атрибуты точки для детальной грязи в tex.py.
     panel       — 1 на утопленной филёнке торца (с выемкой и пого-контактами), край мягкий;
+    panel_v     — координата вниз по скату от верхней кромки торца (BU; для затёков от рамки и контактов);
     panel_grime — 0..1, tex_09 («грязь же располагать нужно преимущественно по краям»): у рамки филёнки, в углах,
                   у нижней кромки, вокруг выемки хвата и пого-контактов; середина почти чистая."""
     poly = offset_poly(FACE, PANEL_M)
@@ -456,7 +457,7 @@ def panel_mask(obj, it=4):
         ab = b - a
         t = min(max((p - a).dot(ab) / ab.length_squared, 0.0), 1.0)
         return (p - (a + ab * t)).length
-    pan, gri = [], []
+    pan, gri, pv = [], [], []
     for v in bm.verts:
         c = v.co
         sy = 1 if c.y > 0 else -1
@@ -474,15 +475,17 @@ def panel_mask(obj, it=4):
             grip = 1 - sstep(0.0, 0.026, min(seg_dist(p2, a, b) for a, b in grip_lines))
             pin = max(1 - sstep(0.030, 0.058, (p2 - pc).length) for pc in pins)
             gri.append(min(1.0, max(edge, 0.8 * grip, 0.8 * pin) + 0.15 * low))
+            pv.append(p2.y)
         else:
             pan.append(0.0)
             gri.append(0.0)
+            pv.append(0.0)
     adj = [[e.other_vert(v).index for e in v.link_edges] for v in bm.verts]
     for _ in range(it):
         pan = [0.5 * pan[i] + 0.5 * sum(pan[j] for j in adj[i]) / max(len(adj[i]), 1) for i in range(len(pan))]
         gri = [0.5 * gri[i] + 0.5 * sum(gri[j] for j in adj[i]) / max(len(adj[i]), 1) for i in range(len(gri))]
     bm.free()
-    for nm, val in (("panel", pan), ("panel_grime", gri)):
+    for nm, val in (("panel", pan), ("panel_grime", gri), ("panel_v", pv)):     # panel_v — вниз по скату, BU
         at = me.attributes.new(nm, 'FLOAT', 'POINT')
         at.data.foreach_set("value", val)
     print("panel: %d verts" % sum(1 for x in pan if x > 0.5))
