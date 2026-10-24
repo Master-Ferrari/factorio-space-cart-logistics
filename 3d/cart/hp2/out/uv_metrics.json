@@ -1,0 +1,221 @@
+{
+ "objects": {
+  "body": {
+   "tris_high": 668704,
+   "tris": 110000,
+   "islands": 26
+  },
+  "pogo_collars": {
+   "tris_high": 106440,
+   "tris": 9000,
+   "islands": 27
+  },
+  "pogo_pins": {
+   "tris_high": 62056,
+   "tris": 7000,
+   "islands": 28
+  },
+  "bumpers": {
+   "tris_high": 440984,
+   "tris": 32000,
+   "islands": 38
+  },
+  "door": {
+   "tris_high": 266756,
+   "tris": 26000,
+   "islands": 16
+  },
+  "visors": {
+   "tris_high": 119552,
+   "tris": 12000,
+   "islands": 20
+  },
+  "visor_rivets": {
+   "tris_high": 8064,
+   "tris": 8064,
+   "islands": 36
+  },
+  "pin_L": {
+   "tris_high": 128,
+   "tris": 128,
+   "islands": 6
+  },
+  "pin_nuts_L": {
+   "tris_high": 448,
+   "tris": 448,
+   "islands": 12
+  },
+  "cheek_L": {
+   "tris_high": 469368,
+   "tris": 32000,
+   "islands": 23
+  },
+  "tabs_L": {
+   "tris_high": 368,
+   "tris": 368,
+   "islands": 24
+  },
+  "tab_plates_L": {
+   "tris_high": 368,
+   "tris": 368,
+   "islands": 24
+  },
+  "rivets_L": {
+   "tris_high": 1536,
+   "tris": 1536,
+   "islands": 119
+  },
+  "wheel_L": {
+   "tris_high": 43008,
+   "tris": 43008,
+   "islands": 14
+  },
+  "hub_nut_L": {
+   "tris_high": 6720,
+   "tris": 6720,
+   "islands": 14
+  },
+  "washer_L": {
+   "tris_high": 768,
+   "tris": 768,
+   "islands": 7
+  },
+  "spring_L": {
+   "tris_high": 2388,
+   "tris": 2380,
+   "islands": 29
+  },
+  "spring_seat_L": {
+   "tris_high": 768,
+   "tris": 768,
+   "islands": 7
+  },
+  "pin_R": {
+   "tris_high": 128,
+   "tris": 128,
+   "islands": 6
+  },
+  "pin_nuts_R": {
+   "tris_high": 448,
+   "tris": 448,
+   "islands": 12
+  },
+  "cheek_R": {
+   "tris_high": 469368,
+   "tris": 32000,
+   "islands": 24
+  },
+  "tabs_R": {
+   "tris_high": 368,
+   "tris": 368,
+   "islands": 24
+  },
+  "tab_plates_R": {
+   "tris_high": 368,
+   "tris": 368,
+   "islands": 24
+  },
+  "rivets_R": {
+   "tris_high": 1536,
+   "tris": 1536,
+   "islands": 119
+  },
+  "wheel_R": {
+   "tris_high": 43008,
+   "tris": 43008,
+   "islands": 14
+  },
+  "hub_nut_R": {
+   "tris_high": 6720,
+   "tris": 6720,
+   "islands": 14
+  },
+  "washer_R": {
+   "tris_high": 768,
+   "tris": 768,
+   "islands": 7
+  },
+  "spring_R": {
+   "tris_high": 2388,
+   "tris": 2380,
+   "islands": 30
+  },
+  "spring_seat_R": {
+   "tris_high": 768,
+   "tris": 768,
+   "islands": 7
+  }
+ },
+ "sets": {
+  "cart_paint": {
+   "objects": 9,
+   "tris": 213472,
+   "islands": 205,
+   "area_m2": 2.3319,
+   "density_px_per_m_2048": {
+    "p5": 779,
+    "p50": 956,
+    "p95": 1032
+   },
+   "stretch_ratio": {
+    "p50": 1.006,
+    "p95": 1.142,
+    "p99": 1.866
+   },
+   "uv_fill": 0.508,
+   "overlap_px_1024": 0,
+   "islands_closer_than_8px": 0
+  },
+  "cart_metal": {
+   "objects": 3,
+   "tris": 118016,
+   "islands": 66,
+   "area_m2": 1.719,
+   "density_px_per_m_2048": {
+    "p5": 1031,
+    "p50": 1075,
+    "p95": 1144
+   },
+   "stretch_ratio": {
+    "p50": 1.004,
+    "p95": 1.031,
+    "p99": 1.058
+   },
+   "uv_fill": 0.474,
+   "overlap_px_1024": 0,
+   "islands_closer_than_8px": 0
+  },
+  "cart_hardware": {
+   "objects": 17,
+   "tris": 49560,
+   "islands": 480,
+   "area_m2": 0.4389,
+   "density_px_per_m_2048": {
+    "p5": 2223,
+    "p50": 2255,
+    "p95": 2286
+   },
+   "stretch_ratio": {
+    "p50": 1.001,
+    "p95": 1.037,
+    "p99": 1.095
+   },
+   "uv_fill": 0.532,
+   "overlap_px_1024": 0,
+   "islands_closer_than_8px": 1
+  }
+ },
+ "tris_high": 2724292,
+ "tris": 381048,
+ "reimport": {
+  "objects": 30,
+  "size_bu": [
+   0.916,
+   0.951,
+   0.606
+  ],
+  "problems": []
+ },
+ "silhouette_diff_persp": 3e-05,
+ "silhouette_diff_game": 4e-05
+}

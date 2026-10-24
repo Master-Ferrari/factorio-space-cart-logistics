@@ -22,7 +22,7 @@ REF13_BOX = (776, 150, 1410, 520)
 REF23 = os.path.join(HERE, "..", "film", "data", "images", "23.png")    # стальной сундук крупно (~220 px на тайл)
 REF24 = os.path.join(HERE, "..", "film", "data", "images", "24.png")    # накладка над пружиной: контур автора
 REF24_CROP = (330, 360, 770, 580)                                        # то же место на T_close_game
-KEY = "T"
+KEY = "P" if "--painted" in sys.argv else "T"      # P — карты автора (make.py --tex painted)
 DARK = (22, 24, 26, 255)
 
 
@@ -102,14 +102,15 @@ def main():
         blocks.append(row(parts))
     W = max(b.width for b in blocks) + 24
     S = Image.new("RGBA", (W, 56 + sum(b.height + 14 for b in blocks)), DARK)
-    C.label(S, "Каретка hp2 — генеративные материалы (Cycles): тёмная сталь как у стального сундука, кромки затёрты до "
+    C.label(S, "Каретка hp2 — PBR-карты автора (tex_in/, без карт — заглушки out/tex_stub/)" if KEY == "P" else "Каретка hp2 — генеративные материалы (Cycles): тёмная сталь как у стального сундука, кромки затёрты до "
                "металла, ржавчина в швах, рыжая пыль, AO; колёса и бампер — голый металл", 24, (12, 12))
     y = 56
     for b in blocks:
         S.alpha_composite(b, (12, y))
         y += b.height + 14
-    S.save(os.path.join(C.OUT, "sheet_tex.png"))
-    print("sheet sheet_tex.png", S.size)
+    nm = "sheet_painted.png" if KEY == "P" else "sheet_tex.png"
+    S.save(os.path.join(C.OUT, nm))
+    print("sheet", nm, S.size)
 
 
 if __name__ == "__main__":

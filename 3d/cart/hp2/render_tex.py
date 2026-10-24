@@ -39,7 +39,8 @@ HDRI_E = 0.5
 
 def args():
     a = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    opt = dict(views=GAME + ["hero", "close"], samples=24)
+    opt = dict(views=GAME + ["hero", "close"], samples=24, painted="--painted" in a)
+    a = [x for x in a if x != "--painted"]
     for i in range(0, len(a) - 1, 2):
         if a[i] == "--views":
             opt["views"] = a[i + 1].split(",")
@@ -138,7 +139,13 @@ def render(path):
 def main():
     opt = args()
     setup(opt["samples"])
-    tex.apply()
+    # --painted (make.py --tex painted, на cart_hp2_paint.blend): карты автора из tex_in/ вместо генеративных
+    key = "P" if opt["painted"] else "T"
+    if opt["painted"]:
+        import painted
+        painted.apply()
+    else:
+        tex.apply()
     for m in bpy.data.materials:
         m.use_fake_user = m.name.startswith("hp2_")
     v = view_coll()
@@ -148,7 +155,7 @@ def main():
     with open(os.path.join(OUT, "frames.json"), encoding="utf-8") as f:
         frames = json.load(f)
     for view in opt["views"]:
-        p = os.path.join(OUT, "T_%s.png" % view)
+        p = os.path.join(OUT, "%s_%s.png" % (key, view))
         v = view_coll()
         if view in GAME:
             world = K.empty("WORLD", v, scale=(1, K.STRETCH, 1))
@@ -171,11 +178,12 @@ def main():
             instance(v, 0, 0, EAST, None)
             catcher(v, None)
             K.free_camera("cam", v, (0, 0, 0.30), (62, 0, 38), 0.95, (1100, 1100))
-            render(os.path.join(OUT, "T_close_persp.png"))
+            render(os.path.join(OUT, key + "_close_persp.png"))
             K.free_camera("cam", v, (0, 0, 0.30), (45, 0, 0), 1.0, (1100, 1100))
-            render(os.path.join(OUT, "T_close_game.png"))
-    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(HERE, "cart_hp2_tex.blend"))
-    print("saved cart_hp2_tex.blend")
+            render(os.path.join(OUT, key + "_close_game.png"))
+    if not opt["painted"]:
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(HERE, "cart_hp2_tex.blend"))
+        print("saved cart_hp2_tex.blend")
 
 
 main()

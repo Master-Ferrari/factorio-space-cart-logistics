@@ -25,3 +25,6 @@ __pycache__/
 # Фильм: выход сборки (img/ собирается из film/data и папок вариантов)
 3d/cart/film/img/
 3d/cart/film/index_*.html
+
+# Хайполи для запекания в Painter (пересобирается make.py --from export)
+3d/**/out/bake/
