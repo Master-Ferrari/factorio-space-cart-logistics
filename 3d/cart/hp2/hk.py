@@ -92,6 +92,8 @@ def join(objs, name='j'):
 
 def transform(obj, mat):
     obj.data.transform(mat)
+    if mat.to_3x3().determinant() < 0:            # зеркальная матрица выворачивает грани — boolean их не простит
+        obj.data.flip_normals()
     return obj
 
 

@@ -182,6 +182,32 @@ def scheme(key, P):
     return C
 
 
+def overlay_block(key):
+    """Наложение силуэтов hp2 и v9c в одних ракурсах: серое — совпало, красное — лишнее у hp2, голубое — нет у hp2.
+    Ортовиды содержат болванку рельса (она совпадает и уходит в серое)."""
+    views = [("single", "игровой E-W"), ("single_ns", "игровой N-S"), ("single_dg", "игровой диагональ"),
+             ("front", "front"), ("right", "right / торец"), ("top", "top")]
+    ims = []
+    for v, t in views:
+        a = np.asarray(Image.open(os.path.join(REN, "%s_%s.png" % (key, v))).convert("RGBA"))[:, :, 3] > 128
+        b = np.asarray(Image.open(os.path.join(V9C, "A_%s.png" % v)).convert("RGBA"))[:, :, 3] > 128
+        im = np.zeros(a.shape + (4,), np.uint8)
+        im[..., 3] = 255
+        im[..., :3] = 34
+        im[a & b, :3] = 150
+        im[a & ~b, :3] = (255, 60, 60)
+        im[b & ~a, :3] = (60, 200, 255)
+        frac = (a ^ b).sum() / max(1, (a | b).sum())
+        ims.append(panel(fit_h(Image.fromarray(im, "RGBA"), 300), t, "расхождение %.1f%% площади" % (100 * frac)))
+    W = sum(i.width for i in ims) + 12 * (len(ims) - 1)
+    C = Image.new("RGBA", (W, max(i.height for i in ims)), (22, 24, 26, 255))
+    x = 0
+    for i in ims:
+        C.alpha_composite(i, (x, 0))
+        x += i.width + 12
+    return C
+
+
 def close_sheet(key):
     """Крупные планы поверхности: matcap (серый с бликами) и зебра; рядом v9c в том же ракурсе."""
     rows = []
@@ -296,6 +322,7 @@ def sheet(key, title, frames, m, P):
          panel(fit_h(hero, r2.height), "Вид 3/4, без растяжки, болванка рельса")],
         [ortho_block(key)],
         [compare(key, frames), tiny_block(key, frames)],
+        [panel(overlay_block(key), "Силуэт hp2 поверх v9c", "серое — совпало, красное — лишнее у hp2, голубое — недостаёт")],
         [panel(scheme(key, P), 'Разрез с торца: hp2 и v9c', 'рендер с торца 900 px/тайл')],
     ]
     if os.path.exists(REF_END):
