@@ -413,4 +413,11 @@ STEPS.append(dict(
              sheets=[F + "hp2_paint_01.jpg"],
              variants=[("hp2 paint", "hp2_paint_01")])))
 
+STEPS.append(dict(
+    user=dict(text="""обновил текстуры. быстрый рендер на подгонку сделай""", images=[]),
+    res=dict(title="PBR-карты автора · второй тест",
+             note="Краска темнее (BaseColor 0.65 → 0.46), филёнки тёмные, фурнитура латунная и матовее (шероховатость 0.29 → 0.44). Набор металла не менялся — колёса и бампер по-прежнему хром.",
+             sheets=[F + "hp2_paint_02.jpg"],
+             variants=[("hp2 paint", "hp2_paint_02")])))
+
 FINAL = ""
