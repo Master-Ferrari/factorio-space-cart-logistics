@@ -420,4 +420,11 @@ STEPS.append(dict(
              sheets=[F + "hp2_paint_02.jpg"],
              variants=[("hp2 paint", "hp2_paint_02")])))
 
+STEPS.append(dict(
+    user=dict(text="""и снова обновил текстуры. зарендери""", images=[]),
+    res=dict(title="PBR-карты автора · третий тест",
+             note="На шпильках красные и зелёные кольца — в 64 px читаются как огни. В углублениях краски (жалюзи, филёнки, люк) — насыщенный сиреневый. Металл колёс с рисунком, но ещё почти зеркальный; фурнитура целиком металл.",
+             sheets=[F + "hp2_paint_03.jpg"],
+             variants=[("hp2 paint", "hp2_paint_03")])))
+
 FINAL = ""
