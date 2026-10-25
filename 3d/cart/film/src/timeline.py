@@ -427,4 +427,11 @@ STEPS.append(dict(
              sheets=[F + "hp2_paint_03.jpg"],
              variants=[("hp2 paint", "hp2_paint_03")])))
 
+STEPS.append(dict(
+    user=dict(text="""и снова""", images=[]),
+    res=dict(title="PBR-карты автора · четвёртый тест",
+             note="Филёнки снова тёмные и грязные — каретка опять делится на плоскости в 64 px. Сиреневый в углублениях приглушён до лилового, но в жалюзи ещё читается. Огни на шпильках — неметалл, блестят как пластик.",
+             sheets=[F + "hp2_paint_04.jpg"],
+             variants=[("hp2 paint", "hp2_paint_04")])))
+
 FINAL = ""
