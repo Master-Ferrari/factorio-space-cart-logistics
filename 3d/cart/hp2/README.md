@@ -67,7 +67,7 @@
 - Тонкие места, где деталь стоит вплотную к соседней (колесо в щеке, бампер у корпуса), могут цеплять чужую геометрию
   при Always. Тогда печь с Match by name, если понадобится.
 
-**Возврат карт.** Класть в `hp2/tex_in/`. Пресет экспорта Painter «PBR Metallic Roughness», нормали **OpenGL**.
+**Возврат карт.** Класть в `hp2/tex_in/` или в `cart/tex/` (туда кладёт экспорт автор; `tex_in` важнее). Пресет экспорта Painter «PBR Metallic Roughness», нормали **OpenGL**.
 - Имена: `<набор>_BaseColor.png`, `_Roughness`, `_Metallic`, `_Normal`, необязательно `_AO`
   (`_Mixed_AO`/`_AmbientOcclusion` тоже читаются). Префикс перед набором допустим (`$mesh_$textureSet_…`).
 - Пример: `tex_in/cart_paint_BaseColor.png`. Форматы: png/tga/tif/jpg/exr.

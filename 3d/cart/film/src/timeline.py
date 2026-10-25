@@ -405,4 +405,12 @@ STEPS.append(dict(
              sheets=[F + "hp2_09.jpg", F + "hp2_09_close.png"],
              variants=[("hp2", "hp2_09")])))
 
+STEPS.append(dict(
+    user=dict(text="""попробуй сделать sheet с новыми текстурами в папке tex
+пока что в рамказ теста""", images=[]),
+    res=dict(title="PBR-карты автора · первый тест",
+             note="Карты из Painter на облегчённой сетке, Cycles: краска, металл, фурнитура. Набор металла пока ровный (металличность 1, шероховатость 0.2) — колёса и бампер выходят зеркальными.",
+             sheets=[F + "hp2_paint_01.jpg"],
+             variants=[("hp2 paint", "hp2_paint_01")])))
+
 FINAL = ""

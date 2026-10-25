@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Материалы по PBR-картам автора (Substance Painter, пресет «PBR Metallic Roughness», нормали OpenGL).
 
-Карты ищутся в hp2/tex_in/ по имени набора и стандартному суффиксу Painter: <набор>_BaseColor.png, _Roughness,
-_Metallic, _Normal (OpenGL), _AO (необязательно). Префикс перед набором допустим ($mesh_$textureSet_…).
+Карты ищутся в hp2/tex_in/, затем в cart/tex/ (туда кладёт экспорт автор), по имени набора и стандартному суффиксу
+Painter: <набор>_BaseColor.png, _Roughness, _Metallic, _Normal (OpenGL), _AO (необязательно). Префикс перед набором
+допустим ($mesh_$textureSet_…). Height и Emissive не читаются.
 Набора нет в tex_in — берутся заглушки out/tex_stub/ (make_stubs: сетка 8×8 в цвет набора, плоская нормаль).
 Используется из render_tex.py --painted (make.py --tex painted) на cart_hp2_paint.blend.
 """
@@ -14,6 +15,7 @@ import bpy
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEX_IN = os.path.join(HERE, "tex_in")
+TEX_AUTHOR = os.path.join(HERE, "..", "tex")      # экспорт автора из Painter (cart_hp2_paint_<набор>_<карта>.png)
 STUB = os.path.join(HERE, "out", "tex_stub")
 SETS = ["cart_paint", "cart_metal", "cart_hardware"]
 SUFFIX = {"BaseColor": ["BaseColor", "Base_Color", "Albedo", "Diffuse"],
@@ -62,8 +64,8 @@ def make_stubs(size=512):
 
 
 def maps(tset):
-    """Карты набора: из tex_in, если там есть BaseColor набора, иначе заглушки."""
-    folder = TEX_IN if find(TEX_IN, tset, "BaseColor") else STUB
+    """Карты набора: из tex_in, иначе из cart/tex автора (по наличию BaseColor набора), иначе заглушки."""
+    folder = next((f for f in (TEX_IN, TEX_AUTHOR) if find(f, tset, "BaseColor")), STUB)
     if folder == STUB and not find(STUB, tset, "BaseColor"):
         make_stubs()
     return folder, {k: find(folder, tset, k) for k in SUFFIX}
