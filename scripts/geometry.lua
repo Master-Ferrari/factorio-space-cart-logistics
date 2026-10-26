@@ -92,8 +92,10 @@ function G.cellnum(c)
   return math.floor(c.x * 32 + 0.5) * 134217728 + math.floor(c.y * 32 + 0.5)
 end
 
--- число кадров поворота каретки (graphics_variation = facing 1..FACINGS)
-G.FACINGS = 32
+-- число кадров поворота каретки (graphics_variation = facing 1..FACINGS). 100 =
+-- шаг 3.6° = ровно один кадр на клетку поворота: четверть круга (25 кадров) ↔
+-- G.TURN = 25 клеток дуги. Прямые N/E/S/W ложатся на кадры 1/26/51/76.
+G.FACINGS = 100
 -- вращение колёс: WHEEL_FRAMES листов по FACINGS кадров (graphics_variation =
 -- facing + FACINGS·фаза), фаза — по пройденному пути: каретка проходит клетку за
 -- тик, так что смена раз в WHEEL_STEP клеток = «каждый шестой тик» на ходу, а
@@ -123,21 +125,22 @@ local SEG_CACHE = {}
 local function build_segment(entry, exit)
   local pe = G.EDGE[entry]
   local cells = {}
-  local prevx, prevy = pe[1], pe[2]
-  local function emit(x, y)
-    cells[#cells + 1] = { x = x, y = y, facing = G.facing_from(x - prevx, y - prevy) }
-    prevx, prevy = x, y
+  local function emit(x, y, dx, dy)
+    cells[#cells + 1] = { x = x, y = y, facing = G.facing_from(dx, dy) }
   end
 
   if exit == G.OPP[entry] then
-    -- прямой: от середины ребра entry к середине ребра exit
+    -- прямой: от середины ребра entry к середине ребра exit, курс — вдоль него
     local px = G.EDGE[exit]
+    local dx, dy = px[1] - pe[1], px[2] - pe[2]
     for k = 1, G.STRAIGHT do
       local t = k / G.STRAIGHT
-      emit(pe[1] + (px[1] - pe[1]) * t, pe[2] + (px[2] - pe[2]) * t)
+      emit(pe[1] + dx * t, pe[2] + dy * t, dx, dy)
     end
   else
-    -- поворот: дуга r=0.5 вокруг угла тайла
+    -- поворот: дуга r=0.5 вокруг угла тайла. Курс клетки — касательная В САМОЙ
+    -- точке (не хорда от предыдущей): k-я клетка = курс входа + k·(90°/TURN), при
+    -- FACINGS = 4·TURN это ровно k кадров, последняя = курс выхода.
     local cx, cy = corner_of(entry, exit)
     local px = G.EDGE[exit]
     local a0 = math.atan2(pe[2] - cy, pe[1] - cx)
@@ -147,7 +150,8 @@ local function build_segment(entry, exit)
     while da < -math.pi do da = da + 2 * math.pi end
     for k = 1, G.TURN do
       local a = a0 + da * (k / G.TURN)
-      emit(cx + 0.5 * math.cos(a), cy + 0.5 * math.sin(a))
+      local dir = da > 0 and 1 or -1   -- касательная (-sin, cos) по ходу дуги
+      emit(cx + 0.5 * math.cos(a), cy + 0.5 * math.sin(a), -math.sin(a) * dir, math.cos(a) * dir)
     end
   end
   return cells

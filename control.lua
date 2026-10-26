@@ -297,6 +297,9 @@ local function ensure_storage()
   storage.rail_remorph = storage.rail_remorph or {}  -- ключи тайлов, ждущих смены класса (rails.flush_remorph)
   storage.rail_trash = storage.rail_trash or {}      -- настройки снятых тайлов для ctrl+z (rails.trash_put)
   storage.convoys = storage.convoys or {}
+  -- число направлений курсов в storage (C.migrate_facings): есть carts без поля —
+  -- старый сейв на 32 направлениях, иначе свежая игра сразу на G.FACINGS
+  storage.cart_facings = storage.cart_facings or (not storage.carts and G.FACINGS or nil)
   storage.carts = storage.carts or {}
   storage.next_convoy_id = storage.next_convoy_id or 1
   if not storage.occ then C.rebuild_occ() end  -- миграция: occ введена позже кареток
@@ -347,6 +350,8 @@ local function rebuild_world()
     end
   end
   for key in pairs(storage.rails) do R.rail_update(key) end
+  -- курсы кареток под текущее G.FACINGS — до проверки/пересбора слоя кареток
+  C.migrate_facings()
   -- геометрия не изменилась → прежние курсоры/составы кареток валидны, оставляем как
   -- есть (сохраняя направление). Пересобираем только несовместимое состояние.
   if not C.carts_consistent() then C.rebuild_carts() end

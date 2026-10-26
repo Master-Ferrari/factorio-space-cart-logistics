@@ -83,11 +83,13 @@ local function square(x, y)
   }
 end
 
--- расхождение facing'ов в пределах шума квантования дуги — ещё «то же направление»
+-- расхождение facing'ов в пределах 22.5° — ещё «то же направление» (соседние
+-- пути, сошедшиеся в узле сетки 1/32; при FACINGS = 100 это 6 кадров)
+local SAME_DEG = 22.5
 local function facing_close(a, b)
   local d = math.abs(a - b) % G.FACINGS
   if d > G.FACINGS / 2 then d = G.FACINGS - d end
-  return d <= 2
+  return d * 360 / G.FACINGS <= SAME_DEG + 1e-9
 end
 
 -- квад клетки: прямоугольник вокруг (x, y), уложенный вдоль пути; strip-порядок вершин

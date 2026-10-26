@@ -200,20 +200,21 @@ local cart = {
   -- Лист — 3d/cart/hp2 (make.py --atlas): ячейка и shift из out/atlas/atlas.json; shift сажает
   -- точку земли каретки на 2.9 px выше позиции, как центр тайла в спрайте рельса.
   -- Слой света — ходовые огни (спереди белые, сзади красные) и их глоу в карте освещения.
-  -- Вариации 1..32 — курс, 33..64 — тот же курс с повёрнутыми колёсами (лист *-b,
-  -- ячейка и shift общие), runtime чередует их на ходу (G.WHEEL_FRAMES, G.WHEEL_STEP).
+  -- Вариации 1..100 — курс (шаг 3.6°: по кадру на клетку поворота), 101..200 — тот же курс
+  -- с повёрнутыми колёсами (лист *-b, ячейка и shift общие); runtime чередует их на ходу
+  -- (G.WHEEL_FRAMES, G.WHEEL_STEP). Лист — 4 строки по 25 кадров, файл на кадр колёс.
   pictures = {
     sheet = {
       layers = {
-        { filenames = { GFX .. "cart.png", GFX .. "cart-b.png" }, lines_per_file = 1,
-          width = 92, height = 84, shift = { 0.2188, -0.2016 },
-          line_length = 32, variation_count = 64, scale = 0.5 },
-        { filenames = { GFX .. "cart-shadow.png", GFX .. "cart-b-shadow.png" }, lines_per_file = 1,
-          width = 92, height = 84, shift = { 0.2188, -0.2016 },
-          line_length = 32, variation_count = 64, scale = 0.5, draw_as_shadow = true },
-        { filenames = { GFX .. "cart-light.png", GFX .. "cart-b-light.png" }, lines_per_file = 1,
-          width = 92, height = 84, shift = { 0.2188, -0.2016 },
-          line_length = 32, variation_count = 64, scale = 0.5, draw_as_light = true },
+        { filenames = { GFX .. "cart.png", GFX .. "cart-b.png" }, lines_per_file = 4,
+          width = 94, height = 84, shift = { 0.2188, -0.2016 },
+          line_length = 25, variation_count = 200, scale = 0.5 },
+        { filenames = { GFX .. "cart-shadow.png", GFX .. "cart-b-shadow.png" }, lines_per_file = 4,
+          width = 94, height = 84, shift = { 0.2188, -0.2016 },
+          line_length = 25, variation_count = 200, scale = 0.5, draw_as_shadow = true },
+        { filenames = { GFX .. "cart-light.png", GFX .. "cart-b-light.png" }, lines_per_file = 4,
+          width = 94, height = 84, shift = { 0.2188, -0.2016 },
+          line_length = 25, variation_count = 200, scale = 0.5, draw_as_light = true },
       },
     },
   },

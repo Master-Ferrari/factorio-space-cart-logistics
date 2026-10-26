@@ -1,8 +1,9 @@
 {
- "width": 92,
+ "width": 94,
  "height": 84,
- "line_length": 32,
- "variation_count": 32,
+ "line_length": 25,
+ "lines_per_file": 4,
+ "variation_count": 100,
  "shift": [
   0.2188,
   -0.2016

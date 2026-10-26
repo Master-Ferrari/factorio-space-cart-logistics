@@ -118,14 +118,66 @@ def door_material():
     return m
 
 
-def apply():
+OFF_FRONT, OFF_REAR = srgb(18, 26, 58), srgb(58, 12, 12)     # выключенные лампы: тёмно-синий / тёмно-красный
+
+
+def lamp_off_material(name, col):
+    """Выключенная лампа (днём, без карты света): стекло без свечения, сердцевина темнее краёв — «пустая».
+    Радиус — по Generated (0..1 в рамке лампы) от её центра."""
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    nt.nodes.clear()
+    L = nt.links.new
+    out = nt.nodes.new('ShaderNodeOutputMaterial')
+    b = nt.nodes.new('ShaderNodeBsdfPrincipled')
+    L(b.outputs["BSDF"], out.inputs["Surface"])
+    b.inputs["Roughness"].default_value = 0.18
+    b.inputs["Metallic"].default_value = 0.0
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    sub = nt.nodes.new('ShaderNodeVectorMath')
+    sub.operation = 'SUBTRACT'
+    sub.inputs[1].default_value = (0.5, 0.5, 0.5)
+    L(tc.outputs["Generated"], sub.inputs[0])
+    ln = nt.nodes.new('ShaderNodeVectorMath')
+    ln.operation = 'LENGTH'
+    L(sub.outputs[0], ln.inputs[0])
+    r = nt.nodes.new('ShaderNodeMapRange')
+    r.interpolation_type = 'SMOOTHSTEP'
+    r.inputs["From Min"].default_value, r.inputs["From Max"].default_value = 0.45, 0.8
+    r.inputs["To Min"].default_value, r.inputs["To Max"].default_value = 0.25, 1.0   # центр — четверть яркости края
+    L(ln.outputs["Value"], r.inputs["Value"])
+    mx = nt.nodes.new('ShaderNodeMix')
+    mx.data_type = 'RGBA'
+    mx.blend_type = 'MULTIPLY'
+    mx.inputs["Factor"].default_value = 1.0
+    mx.inputs[6].default_value = col
+    L(r.outputs["Result"], mx.inputs[7])
+    L(mx.outputs[2], b.inputs["Base Color"])
+    return m
+
+
+LAMPS = {}                      # объект лампы -> горящий материал (для прохода света, lamps_on)
+
+
+def apply(lamps_off=False):
     door = bpy.data.objects["new_door"]
     door.data.materials.clear()
     door.data.materials.append(door_material())
     white, red, rim = leds.material("led_front", *leds.FRONT), leds.material("led_rear", *leds.REAR), leds.rim_material()
+    off = {"front_lamps": lamp_off_material("led_front_off", OFF_FRONT),
+           "back_lamps": lamp_off_material("led_rear_off", OFF_REAR)}
     for o in bpy.data.collections["CART_A"].all_objects:
         if o.parent and o.parent.name in ("front_lamps", "back_lamps"):
-            mat = rim if o.name.startswith("rim") else white if o.parent.name == "front_lamps" else red
+            on = rim if o.name.startswith("rim") else white if o.parent.name == "front_lamps" else red
+            mat = off[o.parent.name] if lamps_off and on is not rim else on
+            LAMPS[o] = on
             o.data.materials.clear()
             o.data.materials.append(mat)
-    print("fix: new_door AO+noise, lamps front/back", flush=True)
+    print("fix: new_door AO+noise, lamps %s" % ("off (day)" if lamps_off else "on"), flush=True)
+
+
+def lamps_on():
+    """Проход карты света: лампы горят, что бы ни стояло днём."""
+    for o, mat in LAMPS.items():
+        o.data.materials[0] = mat

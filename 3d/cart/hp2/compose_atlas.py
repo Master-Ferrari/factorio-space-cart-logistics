@@ -8,7 +8,8 @@
 Свет (draw_as_light) = проход, где светят только ходовые огни: полосы и подсвеченный ими металл, плюс глоу от полос,
 обрезанный кругом GLOW_R px (автор: «итоговый глоу должен быть не больше пяти пикселей в радиусе», затем
 «рдиус свечения увеличь в полтора раза» — 7.5).
-Пишет ../../../graphics/cart.png, cart-shadow.png, cart-light.png (32 кадра в строку, общая ячейка W×H при 64 px/тайл),
+Пишет ../../../graphics/cart.png, cart-shadow.png, cart-light.png (100 кадров по LINE в строку, общая ячейка W×H при
+64 px/тайл),
 out/atlas/atlas.json (ячейка и shift для data.lua), out/atlas/preview.png (кадры на тайле, ×2).
 Якорь: точка земли (0, 0, 0) встаёт на 2.9 px выше позиции сущности — как центр тайла в спрайте тайла
 (SPRITE_GROUND_PX), иначе каретка не сядет на рельс.
@@ -30,6 +31,7 @@ from compose import downscale, nearest, TILE_SPRITE, BG  # noqa: E402
 SRC = os.path.join(HERE, "out", "atlas")
 SRC_B = os.path.join(HERE, "out", "atlas_b")           # колёса повёрнуты (atlas.py --wheels)
 GFX = os.path.normpath(os.path.join(HERE, "..", "..", "..", "graphics"))
+LINE = 25                                       # кадров в строке листа: 100 курсов = 4 строки (в одну — 9200 px)
 PAD = 1                                         # поле вокруг общей рамки силуэтов, px
 HAZE = 0.06                                     # дымка AO от HDRI на catcher (альфа до ~0.05 на пол-кадра) — срезаем
 GLOW_R = 7.5                                    # радиус глоу от полос, px при 64 px/тайл — жёсткая граница
@@ -46,8 +48,8 @@ def load(name, f, src=SRC):
 
 def frame(i, f, src=SRC):
     """Курс i при 64 px/тайл: каретка и тень (доля альфы all сверх obj, без дымки AO)."""
-    o = load("obj_%02d.png" % i, f, src)
-    sh = np.asarray(load("sh_%02d.png" % i, f, src), np.float32)[:, :, 3] / 255
+    o = load("obj_%03d.png" % i, f, src)
+    sh = np.asarray(load("sh_%03d.png" % i, f, src), np.float32)[:, :, 3] / 255
     sh = np.clip((sh - HAZE) / (1 - HAZE), 0, 1)
     s = np.zeros(sh.shape + (4,), np.uint8)
     s[:, :, 3] = (sh * 255).round().astype(np.uint8)
@@ -67,7 +69,7 @@ def dilate(mask, r):
 
 def light(i, f, src=SRC):
     """Карта освещения курса i: RGBA, rgb — цвет света, a — его яркость (max канала)."""
-    im = load("light_%02d.png" % i, f, src)
+    im = load("light_%03d.png" % i, f, src)
     a = np.asarray(im, np.float32) / 255
     rgb = a[:, :, :3] * a[:, :, 3:4]                            # премультиплицированный свет
     peak = rgb.max(axis=2)
@@ -89,6 +91,12 @@ def light(i, f, src=SRC):
     return Image.fromarray(out, "RGBA")
 
 
+def cell(sheet, i, w, h):
+    """Кадр i (с 0) из листа по LINE кадров в строке."""
+    x, y = (i % LINE) * w, (i // LINE) * h
+    return sheet.crop((x, y, x + w, y + h))
+
+
 def main():
     """Атлас A (out/atlas) и, если отрендерен, B (out/atlas_b, колёса повёрнуты — кадр вращения): общая ячейка и
     общий shift, иначе подмена листа на ходу дёргала бы каретку на пиксель."""
@@ -96,7 +104,7 @@ def main():
     f = K.PX_RENDER // K.PX_GAME
     n = meta["facings"]
     gx, gy = meta["ground"][0] / f, meta["ground"][1] / f        # точка земли в кадре 64 px/тайл
-    sets = [(suf, src) for suf, src in (("", SRC), ("-b", SRC_B)) if os.path.exists(os.path.join(src, "obj_01.png"))]
+    sets = [(suf, src) for suf, src in (("", SRC), ("-b", SRC_B)) if os.path.exists(os.path.join(src, "obj_001.png"))]
     layers = {}
     for suf, src in sets:
         objs, shads, lights = [], [], []
@@ -126,45 +134,46 @@ def main():
     for suf, (objs, shads, lights) in layers.items():
         out = []
         for nm, ims in (("", objs), ("-shadow", shads), ("-light", lights)):
-            sh_ = Image.new("RGBA", (w * n, h))
+            sh_ = Image.new("RGBA", (w * LINE, h * -(-n // LINE)))
             for i in range(n):
-                sh_.paste(ims[i].crop((x0, y0, x0 + w, y0 + h)), (i * w, 0))
+                sh_.paste(ims[i].crop((x0, y0, x0 + w, y0 + h)), ((i % LINE) * w, (i // LINE) * h))
             sh_.save(os.path.join(GFX, "cart%s%s.png" % (suf, nm)), optimize=True)
             out.append(sh_)
         sheets[suf] = out
-    info = dict(width=w, height=h, line_length=n, variation_count=n, shift=[round(shift[0], 4), round(shift[1], 4)],
+    info = dict(width=w, height=h, line_length=LINE, lines_per_file=-(-n // LINE), variation_count=n, shift=[round(shift[0], 4), round(shift[1], 4)],
                 sheets=["cart%s" % suf for suf in sheets])
     json.dump(info, open(os.path.join(SRC, "atlas.json"), "w", encoding="utf-8"), indent=1)
-    print("atlas %s: %dx%d cell %dx%d shift %s" % (", ".join(info["sheets"]), w * n, h, w, h, info["shift"]))
+    print("atlas %s: %dx%d cell %dx%d shift %s" % (", ".join(info["sheets"]), w * LINE, h * info["lines_per_file"], w, h,
+                                                  info["shift"]))
     preview(sheets[""][0], sheets[""][1], w, h, n, shift)
     if "-b" in sheets:
         wheels_compare(sheets[""][0], sheets["-b"][0], w, h)
 
 
-def wheels_compare(a, b, w, h, ids=(1, 5, 9, 13, 17)):
+def wheels_compare(a, b, w, h, ids=(1, 13, 26, 38, 51)):
     """Кадры A и B друг под другом (×4) — видно ли вращение колёс."""
     P = Image.new("RGBA", (w * len(ids), h * 2), BG)
     for k, i in enumerate(ids):
         for r, sh_ in enumerate((a, b)):
-            P.alpha_composite(sh_.crop(((i - 1) * w, 0, i * w, h)), (k * w, r * h))
+            P.alpha_composite(cell(sh_, i - 1, w, h), (k * w, r * h))
     nearest(P, 4).save(os.path.join(SRC_B, "compare.png"))
 
 
 def preview(sheet_o, sheet_s, w, h, n, shift):
-    """Кадры как в игре: тайл по якорю, тень (≈ ванильная плотность 0.5), каретка; 8×4, ×2."""
+    """Кадры как в игре: тайл по якорю, тень (≈ ванильная плотность 0.5), каретка; 10 в ряд, ×1."""
     tile = Image.open(TILE_SPRITE).convert("RGBA")
-    cell = 128
-    P = Image.new("RGBA", (cell * 8, cell * 4), BG)
+    c = 112
+    P = Image.new("RGBA", (c * 10, c * -(-n // 10)), BG)
     for i in range(n):
-        cx, cy = (i % 8) * cell + cell // 2, (i // 8) * cell + cell // 2        # позиция сущности
+        cx, cy = (i % 10) * c + c // 2, (i // 10) * c + c // 2                  # позиция сущности
         P.alpha_composite(tile, (round(cx - tile.width / 2), round(cy - tile.height / 2)))
         ox = round(cx - w / 2 + shift[0] * K.PX_GAME)
         oy = round(cy - h / 2 + shift[1] * K.PX_GAME)
-        s = sheet_s.crop((i * w, 0, (i + 1) * w, h))
+        s = cell(sheet_s, i, w, h)
         s.putalpha(s.getchannel("A").point(lambda v: v // 2))
         P.alpha_composite(s, (ox, oy))
-        P.alpha_composite(sheet_o.crop((i * w, 0, (i + 1) * w, h)), (ox, oy))
-    nearest(P, 2).save(os.path.join(SRC, "preview.png"))
+        P.alpha_composite(cell(sheet_o, i, w, h), (ox, oy))
+    P.save(os.path.join(SRC, "preview.png"))
 
 
 def night(scene, lm):
@@ -184,7 +193,7 @@ def test(src):
     gx, gy = meta["ground"][0] / f, meta["ground"][1] / f
     lift = K.SPRITE_TILE_PX / 2 - K.SPRITE_GROUND_PX[1]
     tile = Image.open(TILE_SPRITE).convert("RGBA")
-    ids = sorted(int(n[4:6]) for n in os.listdir(src) if n.startswith("obj_"))
+    ids = sorted(int(n[4:-4]) for n in os.listdir(src) if n.startswith("obj_"))
     cell = 112
     P = Image.new("RGBA", (cell * len(ids), cell), BG)
     L = Image.new("RGBA", P.size, (0, 0, 0, 0))
@@ -196,7 +205,7 @@ def test(src):
         sh.putalpha(sh.getchannel("A").point(lambda v: v // 2))
         P.alpha_composite(sh, (ox, oy))
         P.alpha_composite(o, (ox, oy))
-        if os.path.exists(os.path.join(src, "light_%02d.png" % i)):
+        if os.path.exists(os.path.join(src, "light_%03d.png" % i)):
             L.alpha_composite(light(i, f, src), (ox, oy))
     T = Image.new("RGBA", (P.width, P.height * 2), BG)
     T.paste(P, (0, 0))

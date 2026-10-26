@@ -7,6 +7,8 @@
 --   storage.convoys[id] = { id, carts = { unit_number, ... } }  -- от головы к хвосту
 --   storage.occ[cellnum] = { [un] = refcount }  -- оккупанси, инкрементальная
 --   storage.next_convoy_id
+--   storage.cart_facings = число направлений, в котором записаны все facing выше
+--                         (G.FACINGS; nil — сейв до 100 направлений, там их 32)
 --
 -- Состав движется как целое: гейтит голова (встала → весь состав встал), при go едут все.
 -- Оккупанси по клеткам блокирует только голову (тело идёт по освобождённым клеткам).
@@ -21,11 +23,16 @@ local Overlay = require("scripts.cart_overlay")
 local C = {}
 
 -- ── вспомогательные ────────────────────────────────────────────────
+-- «тот же курс»: расхождение не больше 11.25° (исторический допуск — один кадр
+-- при 32 направлениях). При FACINGS = 100 это 3 кадра (10.8°). Курсы клеток —
+-- касательные, так что одна и та же клетка одного пути совпадает точно; допуск
+-- лишь склеивает соседние пути, сошедшиеся в узле сетки 1/32 почти по одному курсу.
+local CLOSE_DEG = 11.25
 local function facing_close(a, b)
   local n = G.FACINGS
   local d = math.abs(a - b) % n
   if d > n / 2 then d = n - d end
-  return d <= 1
+  return d * 360 / n <= CLOSE_DEG + 1e-9
 end
 
 local function tail_cart(cv)
@@ -631,6 +638,33 @@ function C.migrate_cart_inventories()
   end
 end
 
+-- Миграция курсов под новое число направлений (апдейт мода: 32 → 100). Курсы в
+-- storage — у каретки (facing) и у каждой клетки её следа; cursor.seg — копия
+-- сегмента со старыми курсами, его перепривязываем к текущей геометрии. Старый
+-- курс клетки поворота был хордой (± полкадра из 32), пересчёт даёт расхождение с
+-- новой касательной ≤ 2 кадров — в пределах facing_close, так что склейка/раскол
+-- не дёргаются; след обновится сам за 32 клетки хода. Признак — storage.cart_facings:
+-- свежая игра пишет G.FACINGS в ensure_storage, старый сейв его не имеет (= 32).
+-- Вызывать ДО carts_consistent/rebuild_carts: cart_register читает курс с сущности.
+function C.migrate_facings()
+  local from, to = storage.cart_facings or 32, G.FACINGS
+  storage.cart_facings = to
+  if from == to then return end
+  local function conv(f)
+    return f and math.floor((f - 1) * to / from + 0.5) % to + 1
+  end
+  for _, cart in pairs(storage.carts) do
+    cart.facing = conv(cart.facing)
+    cart.frame = nil
+    for _, cell in pairs(cart.cells or {}) do cell.facing = conv(cell.facing) end
+    local cur = cart.cursor
+    if cur and cur.entry and cur.exit then cur.seg = G.get_segment(cur.entry, cur.exit) end
+    if cart.entity and cart.entity.valid and cart.facing then
+      cart.entity.graphics_variation = cart.facing
+    end
+  end
+end
+
 -- payload каретки (read-next 6h) = сигналы её груза. Массив
 -- { {key, type, name, quality, count}, ... } — key совпадает с Circuit.signal_key
 -- (квалити-aware), поэтому мерджится с чтениями сети без рассинхрона. nil, если груз
@@ -675,7 +709,7 @@ function C.cart_register(entity)
   -- не вызывается, если под кареткой нет рельса с соединениями. Берём то, что уже
   -- нарисовано на сущности (клон/пересбор сохраняют variation), иначе север.
   local facing = entity.graphics_variation
-  facing = facing and (facing - 1) % G.FACINGS + 1 or 1   -- кадр колёс (33..64) — тот же курс
+  facing = facing and (facing - 1) % G.FACINGS + 1 or 1   -- кадр колёс (FACINGS+1..) — тот же курс
   entity.graphics_variation = facing
   storage.carts[un] = { entity = entity, convoy = nil, facing = facing }
   C.cart_inventory(un)  -- груз — суть каретки, создаём сразу
