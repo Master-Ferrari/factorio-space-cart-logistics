@@ -16,10 +16,17 @@
   запуск Cycles после перезагрузки — ещё ~3 мин на компиляцию ядер).
 - `export.py`, `render_paint.py`, `compose_uv.py`, `painted.py` — экспорт под ручную покраску (раздел ниже).
 - `atlas.py`, `compose_atlas.py` — игровой атлас с картами автора: `python make.py --atlas` (~5 мин) ->
-  `graphics/cart.png` + `cart-shadow.png` (`draw_as_shadow`), 32 кадра в строку, facing 1 = север, по часовой.
+  `graphics/cart.png` + `cart-shadow.png` (`draw_as_shadow`) + `cart-light.png`, 32 кадра в строку, facing 1 = север, по часовой.
   Два прохода на курс: каретка и каретка с shadow catcher; тень = разница альф, дымка AO от HDRI (< 0.06) срезана.
-  Ячейка и `shift` для `data.lua` — `out/atlas/atlas.json` (сейчас 92×84, shift 0.2188, −0.1859); превью на тайле —
+  Ячейка и `shift` для `data.lua` — `out/atlas/atlas.json` (сейчас 92×84, shift 0.2188, −0.2016); превью на тайле —
   `out/atlas/preview.png`.
+  Источник — FBX автора `cart_hp2_user_handmade_fix.fbx` (его верхняя панель «>>>» и лампы, перёд — +Y):
+  `fix_build.py` собирает из него `cart_hp2_fix.blend` и запекает AO панели в свою развёртку UVAO
+  (`out/bake/new_door_ao.png`); `fix.py` — материал панели (AO + шум, палитра со скриншота автора) и лампы
+  (спереди тёплый белый, сзади красный, окантовка тёмная). Атлас: `blender -b cart_hp2_fix.blend --python atlas.py`.
+  Тень — отдельный проход (каретка невидима камере), целая; слой света — проход, где светят только лампы,
+  глоу обрезан кругом 7.5 px. Пробы: `atlas.py -- --facings 1,9,17 --out out/fix_test --close 13`, затем
+  `compose_atlas.py --test out/fix_test` (день и ночь, 64 px/тайл ×4).
 
 ## Экспорт под покраску (автор: «мне не нравится как ты текстурируешь. подготовь fbx с хорошей uv и я сделаю это сам. верну тебе с pbr текстурами»)
 Пересборка: `python make.py --from export` (~4 мин; в `--from build` не входит; `--no-high` — без хайполи).

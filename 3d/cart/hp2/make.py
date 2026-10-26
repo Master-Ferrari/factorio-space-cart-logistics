@@ -88,7 +88,7 @@ def main():
         run([sys.executable, "compose_tex.py", "--painted"])
     if a.atlas:
         # 32 курса × 2 прохода (каретка; + shadow catcher) на облегчённой сетке с картами автора, ~5 мин
-        run([BLENDER, "-b", "cart_hp2_paint.blend", "--python", "atlas.py"])
+        run([BLENDER, "-b", "cart_hp2_fix.blend", "--python", "atlas.py"])
         run([sys.executable, "compose_atlas.py"])
     elif a.tex is not None:
         # рендер с материалами — без --factory-startup (Cycles в фоне виснет); кадры берёт из out/render/frames.json

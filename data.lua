@@ -199,13 +199,16 @@ local cart = {
   render_layer = "object",
   -- Лист — 3d/cart/hp2 (make.py --atlas): ячейка и shift из out/atlas/atlas.json; shift сажает
   -- точку земли каретки на 2.9 px выше позиции, как центр тайла в спрайте рельса.
+  -- Слой света — ходовые огни (спереди белые, сзади красные) и их глоу в карте освещения.
   pictures = {
     sheet = {
       layers = {
-        { filename = GFX .. "cart.png", width = 92, height = 84, shift = { 0.2188, -0.1859 },
+        { filename = GFX .. "cart.png", width = 92, height = 84, shift = { 0.2188, -0.2016 },
           line_length = 32, variation_count = 32, scale = 0.5 },
-        { filename = GFX .. "cart-shadow.png", width = 92, height = 84, shift = { 0.2188, -0.1859 },
+        { filename = GFX .. "cart-shadow.png", width = 92, height = 84, shift = { 0.2188, -0.2016 },
           line_length = 32, variation_count = 32, scale = 0.5, draw_as_shadow = true },
+        { filename = GFX .. "cart-light.png", width = 92, height = 84, shift = { 0.2188, -0.2016 },
+          line_length = 32, variation_count = 32, scale = 0.5, draw_as_light = true },
       },
     },
   },
