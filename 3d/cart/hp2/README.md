@@ -15,6 +15,11 @@
   `compose_tex.py` -> `out/sheet_tex.png`. Пересборка: `python make.py --from compose --tex NN` (~1 мин; первый
   запуск Cycles после перезагрузки — ещё ~3 мин на компиляцию ядер).
 - `export.py`, `render_paint.py`, `compose_uv.py`, `painted.py` — экспорт под ручную покраску (раздел ниже).
+- `atlas.py`, `compose_atlas.py` — игровой атлас с картами автора: `python make.py --atlas` (~5 мин) ->
+  `graphics/cart.png` + `cart-shadow.png` (`draw_as_shadow`), 32 кадра в строку, facing 1 = север, по часовой.
+  Два прохода на курс: каретка и каретка с shadow catcher; тень = разница альф, дымка AO от HDRI (< 0.06) срезана.
+  Ячейка и `shift` для `data.lua` — `out/atlas/atlas.json` (сейчас 92×84, shift 0.2188, −0.1859); превью на тайле —
+  `out/atlas/preview.png`.
 
 ## Экспорт под покраску (автор: «мне не нравится как ты текстурируешь. подготовь fbx с хорошей uv и я сделаю это сам. верну тебе с pbr текстурами»)
 Пересборка: `python make.py --from export` (~4 мин; в `--from build` не входит; `--no-high` — без хайполи).

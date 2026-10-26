@@ -197,14 +197,16 @@ local cart = {
   minable = { mining_time = 0.1, result = "gofarovich-scl-cart" },
   random_variation_on_create = false,
   render_layer = "object",
+  -- Лист — 3d/cart/hp2 (make.py --atlas): ячейка и shift из out/atlas/atlas.json; shift сажает
+  -- точку земли каретки на 2.9 px выше позиции, как центр тайла в спрайте рельса.
   pictures = {
     sheet = {
-      filename = GFX .. "cart.png",
-      width = 64,
-      height = 64,
-      line_length = 32,
-      variation_count = 32,
-      scale = 0.5,
+      layers = {
+        { filename = GFX .. "cart.png", width = 92, height = 84, shift = { 0.2188, -0.1859 },
+          line_length = 32, variation_count = 32, scale = 0.5 },
+        { filename = GFX .. "cart-shadow.png", width = 92, height = 84, shift = { 0.2188, -0.1859 },
+          line_length = 32, variation_count = 32, scale = 0.5, draw_as_shadow = true },
+      },
     },
   },
 }

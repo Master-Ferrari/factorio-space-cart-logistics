@@ -10,6 +10,7 @@
                                                  #   cart_hp2_paint.blend, out/uv_check.png (стадия не входит в --from build)
   python hp2/make.py --from export --tex painted # + рендер с картами автора из tex_in/ -> out/sheet_painted.png
   python hp2/make.py --tex painted               # только рендер с картами (export уже собран)
+  python hp2/make.py --atlas                     # игровой атлас с картами автора: graphics/cart.png, cart-shadow.png
 
 Результат: hp2/out/sheet.png, hp2/out/metrics.json.
 """
@@ -30,7 +31,7 @@ def run(cmd):
     p = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True, encoding="utf-8", errors="replace")
     out = p.stdout + p.stderr
     for line in out.splitlines():
-        if any(k in line for k in ("saved", "sheet", "flipped", "set cart_", "reimport", "tris high", "painted", "Warning", "wheel top", "body faces", "bumper front", "Error", "Traceback", "  File")) \
+        if any(k in line for k in ("saved", "sheet", "flipped", "set cart_", "reimport", "tris high", "painted", "atlas", "Warning", "wheel top", "body faces", "bumper front", "Error", "Traceback", "  File")) \
                 or line[:2] in ("A ", "B "):
             print("   ", line)
     if p.returncode != 0 or "Traceback" in out:
@@ -46,8 +47,9 @@ def main():
     ap.add_argument("--film", default=None, help="NN: снять лист и панели в film/data как hp2_NN")
     ap.add_argument("--tex", default=None, help="NN: материалы — render_tex.py (Cycles) + compose_tex.py -> out/sheet_tex.png;"
                                                 " NN — кадр фильма hp2_tex_NN (0 — без кадра)")
+    ap.add_argument("--atlas", action="store_true", help="32 курса с картами автора -> graphics/cart.png, cart-shadow.png")
     a = ap.parse_args()
-    only_painted = a.tex == "painted" and "--from" not in sys.argv     # --tex painted без --from: только рендер с картами
+    only_painted = (a.tex == "painted" or a.atlas) and "--from" not in sys.argv     # без --from: только рендер с картами
     todo = [] if a.start == EXPORT or only_painted else STAGES[STAGES.index(a.start):]
     if a.start == EXPORT:
         run([BLENDER, "-b", "--factory-startup", "cart_hp2.blend", "--python", "export.py", "--"]
@@ -84,6 +86,10 @@ def main():
         # карты автора (tex_in/<набор>_BaseColor.png …, без них — заглушки) на облегчённой сетке; кадры — из frames.json
         run([BLENDER, "-b", "cart_hp2_paint.blend", "--python", "render_tex.py", "--", "--painted"])
         run([sys.executable, "compose_tex.py", "--painted"])
+    if a.atlas:
+        # 32 курса × 2 прохода (каретка; + shadow catcher) на облегчённой сетке с картами автора, ~5 мин
+        run([BLENDER, "-b", "cart_hp2_paint.blend", "--python", "atlas.py"])
+        run([sys.executable, "compose_atlas.py"])
     elif a.tex is not None:
         # рендер с материалами — без --factory-startup (Cycles в фоне виснет); кадры берёт из out/render/frames.json
         run([BLENDER, "-b", "cart_hp2.blend", "--python", "render_tex.py"])

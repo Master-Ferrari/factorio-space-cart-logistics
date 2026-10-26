@@ -186,4 +186,5 @@ def main():
         print("saved cart_hp2_tex.blend")
 
 
-main()
+if __name__ == "__main__":
+    main()
