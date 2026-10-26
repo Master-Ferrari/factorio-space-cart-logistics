@@ -28,3 +28,4 @@ __pycache__/
 
 # Хайполи для запекания в Painter (пересобирается make.py --from export)
 3d/**/out/bake/
+*.painter_lock
