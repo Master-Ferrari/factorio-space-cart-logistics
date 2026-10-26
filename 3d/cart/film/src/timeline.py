@@ -448,4 +448,11 @@ STEPS.append(dict(
              sheets=[F + "hp2_painted_02.jpg"],
              overview=F + "hp2_painted_02.jpg")))
 
+STEPS.append(dict(
+    user=dict(text="""ещё раз""", images=[]),
+    res=dict(title="PBR-карты автора · седьмой тест",
+             note="Краска снова светлее и чище, грязь сосредоточена на филёнках и кромках; колёса и бампер почти зеркальные.",
+             sheets=[F + "hp2_painted_03.jpg"],
+             overview=F + "hp2_painted_03.jpg")))
+
 FINAL = ""
