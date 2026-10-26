@@ -356,10 +356,10 @@ local prof = nil  -- { ticks, left, total, prep, joins, splits, desired, move, a
 function C.profile_start(n)
   prof = {
     ticks = n, left = n,
-    total = game.create_profiler(true),   prep = game.create_profiler(true),
-    joins = game.create_profiler(true),   splits = game.create_profiler(true),
-    desired = game.create_profiler(true), move = game.create_profiler(true),
-    apply = game.create_profiler(true),
+    total = helpers.create_profiler(true),   prep = helpers.create_profiler(true),
+    joins = helpers.create_profiler(true),   splits = helpers.create_profiler(true),
+    desired = helpers.create_profiler(true), move = helpers.create_profiler(true),
+    apply = helpers.create_profiler(true),
   }
 end
 

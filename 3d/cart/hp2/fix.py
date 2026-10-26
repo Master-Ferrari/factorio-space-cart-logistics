@@ -12,6 +12,7 @@
 import os
 
 import bpy
+import numpy as np
 
 import leds
 
@@ -118,13 +119,37 @@ def door_material():
     return m
 
 
-OFF_FRONT, OFF_REAR = srgb(18, 26, 58), srgb(58, 12, 12)     # выключенные лампы: тёмно-синий / тёмно-красный
+# Выключенные лампы. Автор: «у них должен быть виден фринель эффект. у передних синий отблеск, у задних бордовый»;
+# «сделай текстурой чтобы по краям был насыщенный свет»; затем: «синий только на фасках. плавный переход».
+# Градиент — по форме лампы, а не по UV (маска по UV давала цвет только на фасках): в плоскости лицевой грани лампа —
+# капсула (полудлина A, полуширина B); расстояние до её контура d ∈ [−B, 0] даёт t = 1 + d/B — 0 на осевой линии
+# (тёмная середина), 1 на контуре и дальше, на фасках и боковинах (насыщенный край). Переход плавный по всей ширине.
+OFF_CORE = {"front_lamps": srgb(16, 18, 30), "back_lamps": srgb(42, 11, 17)}        # середина
+OFF_EDGE = {"front_lamps": srgb(62, 82, 150), "back_lamps": srgb(160, 22, 48)}  # край
+EDGE_POW = 3.0                  # кривая t: смесь идёт в линейном цвете — 30 % яркого синего уже светлое на глаз, поэтому круто
 
 
-def lamp_off_material(name, col):
-    """Выключенная лампа (днём, без карты света): стекло без свечения, сердцевина темнее краёв — «пустая».
-    Радиус — по Generated (0..1 в рамке лампы) от её центра."""
-    m = bpy.data.materials.new(name)
+def lamp_frame(o):
+    """Центр, оси (длинная, короткая) и полуразмеры лампы целиком (с фасками) в плоскости её лицевой грани,
+    в локальных координатах: по одной лицевой грани (узкая плоская середина) тёмной выходила только черта."""
+    me = o.data
+    big = max(me.polygons, key=lambda p: p.area)
+    pts = np.array([v.co[:] for v in me.vertices])
+    n = np.array(big.normal[:])
+    q = pts - pts.mean(0)
+    q -= np.outer(q @ n, n)
+    _, vec = np.linalg.eigh(q.T @ q)
+    u = vec[:, 2]                                  # длинная ось
+    v = np.cross(n, u)
+    pu, pv = q @ u, q @ v
+    c = pts.mean(0) + u * (pu.max() + pu.min()) / 2 + v * (pv.max() + pv.min()) / 2
+    return c, u, v, (pu.max() - pu.min()) / 2, (pv.max() - pv.min()) / 2
+
+
+def lamp_off_material(o, core, edge):
+    """Выключенная лампа (днём, без карты света): без свечения, цвет середина ↔ край по расстоянию до контура."""
+    c, u, v, A, B = lamp_frame(o)
+    m = bpy.data.materials.new("lamp_off_" + o.name)
     m.use_nodes = True
     nt = m.node_tree
     nt.nodes.clear()
@@ -132,27 +157,46 @@ def lamp_off_material(name, col):
     out = nt.nodes.new('ShaderNodeOutputMaterial')
     b = nt.nodes.new('ShaderNodeBsdfPrincipled')
     L(b.outputs["BSDF"], out.inputs["Surface"])
-    b.inputs["Roughness"].default_value = 0.18
+    b.inputs["Roughness"].default_value = 0.3
     b.inputs["Metallic"].default_value = 0.0
+
+    def vm(op, a_, b_=None):
+        n_ = nt.nodes.new('ShaderNodeVectorMath')
+        n_.operation = op
+        for i, x in enumerate((a_, b_)):
+            if x is None:
+                continue
+            if isinstance(x, bpy.types.NodeSocket):
+                L(x, n_.inputs[i])
+            else:
+                n_.inputs[i].default_value = x
+        return n_.outputs["Value" if op in ('DOT_PRODUCT', 'LENGTH') else "Vector"]
+
+    def mt(op, a_, b_=0.0):
+        n_ = nt.nodes.new('ShaderNodeMath')
+        n_.operation = op
+        for i, x in enumerate((a_, b_)):
+            if isinstance(x, bpy.types.NodeSocket):
+                L(x, n_.inputs[i])
+            else:
+                n_.inputs[i].default_value = x
+        return n_.outputs[0]
+
     tc = nt.nodes.new('ShaderNodeTexCoord')
-    sub = nt.nodes.new('ShaderNodeVectorMath')
-    sub.operation = 'SUBTRACT'
-    sub.inputs[1].default_value = (0.5, 0.5, 0.5)
-    L(tc.outputs["Generated"], sub.inputs[0])
-    ln = nt.nodes.new('ShaderNodeVectorMath')
-    ln.operation = 'LENGTH'
-    L(sub.outputs[0], ln.inputs[0])
-    r = nt.nodes.new('ShaderNodeMapRange')
-    r.interpolation_type = 'SMOOTHSTEP'
-    r.inputs["From Min"].default_value, r.inputs["From Max"].default_value = 0.45, 0.8
-    r.inputs["To Min"].default_value, r.inputs["To Max"].default_value = 0.25, 1.0   # центр — четверть яркости края
-    L(ln.outputs["Value"], r.inputs["Value"])
+    p = vm('SUBTRACT', tc.outputs["Object"], tuple(c))
+    px = mt('ABSOLUTE', vm('DOT_PRODUCT', p, tuple(u)))
+    py = vm('DOT_PRODUCT', p, tuple(v))
+    qx = mt('MAXIMUM', mt('SUBTRACT', px, A - B), 0.0)          # капсула: отрезок ±(A−B) по длинной оси, радиус B
+    cx = nt.nodes.new('ShaderNodeCombineXYZ')
+    L(qx, cx.inputs["X"])
+    L(py, cx.inputs["Y"])
+    d = mt('SUBTRACT', vm('LENGTH', cx.outputs["Vector"]), B)
+    t = mt('POWER', mt('MAXIMUM', mt('MINIMUM', mt('ADD', mt('DIVIDE', d, B), 1.0), 1.0), 0.0), EDGE_POW)
     mx = nt.nodes.new('ShaderNodeMix')
     mx.data_type = 'RGBA'
-    mx.blend_type = 'MULTIPLY'
-    mx.inputs["Factor"].default_value = 1.0
-    mx.inputs[6].default_value = col
-    L(r.outputs["Result"], mx.inputs[7])
+    L(t, mx.inputs["Factor"])
+    mx.inputs[6].default_value = core
+    mx.inputs[7].default_value = edge
     L(mx.outputs[2], b.inputs["Base Color"])
     return m
 
@@ -165,12 +209,11 @@ def apply(lamps_off=False):
     door.data.materials.clear()
     door.data.materials.append(door_material())
     white, red, rim = leds.material("led_front", *leds.FRONT), leds.material("led_rear", *leds.REAR), leds.rim_material()
-    off = {"front_lamps": lamp_off_material("led_front_off", OFF_FRONT),
-           "back_lamps": lamp_off_material("led_rear_off", OFF_REAR)}
     for o in bpy.data.collections["CART_A"].all_objects:
         if o.parent and o.parent.name in ("front_lamps", "back_lamps"):
             on = rim if o.name.startswith("rim") else white if o.parent.name == "front_lamps" else red
-            mat = off[o.parent.name] if lamps_off and on is not rim else on
+            g = o.parent.name
+            mat = lamp_off_material(o, OFF_CORE[g], OFF_EDGE[g]) if lamps_off and on is not rim else on
             LAMPS[o] = on
             o.data.materials.clear()
             o.data.materials.append(mat)

@@ -134,6 +134,8 @@ def main():
     for suf, (objs, shads, lights) in layers.items():
         out = []
         for nm, ims in (("", objs), ("-shadow", shads), ("-light", lights)):
+            if suf and nm == "-light":
+                continue                            # свет от колёс не зависит — у листа B своего нет
             sh_ = Image.new("RGBA", (w * LINE, h * -(-n // LINE)))
             for i in range(n):
                 sh_.paste(ims[i].crop((x0, y0, x0 + w, y0 + h)), ((i % LINE) * w, (i // LINE) * h))

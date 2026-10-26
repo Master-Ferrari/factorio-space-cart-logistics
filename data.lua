@@ -212,7 +212,8 @@ local cart = {
         { filenames = { GFX .. "cart-shadow.png", GFX .. "cart-b-shadow.png" }, lines_per_file = 4,
           width = 94, height = 84, shift = { 0.2188, -0.2016 },
           line_length = 25, variation_count = 200, scale = 0.5, draw_as_shadow = true },
-        { filenames = { GFX .. "cart-light.png", GFX .. "cart-b-light.png" }, lines_per_file = 4,
+        -- свет от колёс не зависит: оба кадра колёс берут один лист
+        { filenames = { GFX .. "cart-light.png", GFX .. "cart-light.png" }, lines_per_file = 4,
           width = 94, height = 84, shift = { 0.2188, -0.2016 },
           line_length = 25, variation_count = 200, scale = 0.5, draw_as_light = true },
       },
