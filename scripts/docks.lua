@@ -807,6 +807,7 @@ end
 local function flip_cart(cart)
   if cart and not cart.dock_reversed and cart.entity and cart.entity.valid then
     cart.facing = C.opp_facing(cart.facing)
+    cart.frame = cart.facing
     cart.entity.graphics_variation = cart.facing
     cart.dock_reversed = true
   end

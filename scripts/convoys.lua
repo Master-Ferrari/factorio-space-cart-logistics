@@ -124,9 +124,11 @@ local function update_cart(cart)
     cart.entity.teleport({ x = cell.x, y = cell.y })
     cart.px, cart.py = cell.x, cell.y
   end
-  if cart.facing ~= cell.facing then
-    cart.facing = cell.facing
-    cart.entity.graphics_variation = cell.facing
+  cart.facing = cell.facing
+  local frame = cell.facing + G.FACINGS * (math.floor(cart.head / G.WHEEL_STEP) % G.WHEEL_FRAMES)
+  if cart.frame ~= frame then
+    cart.frame = frame
+    cart.entity.graphics_variation = frame
   end
 end
 
@@ -673,7 +675,7 @@ function C.cart_register(entity)
   -- не вызывается, если под кареткой нет рельса с соединениями. Берём то, что уже
   -- нарисовано на сущности (клон/пересбор сохраняют variation), иначе север.
   local facing = entity.graphics_variation
-  if not facing or facing < 1 or facing > G.FACINGS then facing = 1 end
+  facing = facing and (facing - 1) % G.FACINGS + 1 or 1   -- кадр колёс (33..64) — тот же курс
   entity.graphics_variation = facing
   storage.carts[un] = { entity = entity, convoy = nil, facing = facing }
   C.cart_inventory(un)  -- груз — суть каретки, создаём сразу

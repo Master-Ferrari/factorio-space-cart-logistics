@@ -94,6 +94,12 @@ end
 
 -- число кадров поворота каретки (graphics_variation = facing 1..FACINGS)
 G.FACINGS = 32
+-- вращение колёс: WHEEL_FRAMES листов по FACINGS кадров (graphics_variation =
+-- facing + FACINGS·фаза), фаза — по пройденному пути: каретка проходит клетку за
+-- тик, так что смена раз в WHEEL_STEP клеток = «каждый шестой тик» на ходу, а
+-- стоящая каретка кадр не меняет (и не платит за вызов)
+G.WHEEL_FRAMES = 2
+G.WHEEL_STEP = 6
 
 -- facing 1..FACINGS из вектора движения (1 = север/вверх, по часовой)
 function G.facing_from(dx, dy)
