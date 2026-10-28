@@ -20,6 +20,23 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 # меши автора: last_tile_scaled.fbx — to_claude.fbx, вытянутый им вручную в Cinema 4D (процедурная
 # вытяжка ниже тогда не нужна, SEA_STRETCH = 1)
+# Подъём включённых путей над last_tile_scaled.fbx — вместо переэкспорта (в last_new.fbx от 23:37 ON подняты
+# на 0.233, но OFF_* потеряли свои трансформы: дуги съехали в центр, наконечники встали на места ON)
+ON_LIFT = float(os.environ.get("ON_LIFT", 0.233))
+# Положение ламп, выставленное автором вручную в render/mixed_nat2/render_tile.blend (копии — render/user_edits/)
+LIGHT_POSE = {
+    "c_Sun_Rails": ((-23.611, -4.385, 31.318), (1.599, 0.8496, -1.8877), (0.852, 0.945, 1.0)),
+    "c_Sun_Tile3": ((-13.636, -4.45, 22.981), (0.1286, 0.6394, -2.5187), None),
+    "c_Sun_Border": ((12.167, 12.167, 24.575), (-0.7745, 0.7768, 1.7015), None),
+}
+# Верхняя заливка включённых путей (T_Rails_Fill): светит строго вниз (rot 0), только на ON
+# (выставлена автором вручную, render/user_edits/lights_0115.blend)
+RAILS_FILL = {"loc": (-1.982, 7.704, 9.193), "rot": (0.0, 0.0, 0.0), "size": 19.83, "energy": float(os.environ.get("RAILS_FILL", 105.4)),
+              "color": (1.0, 1.0, 1.0)}
+# Акцентный свет рукавов (T_Base_Accent): солнце, выставлено автором вручную (render/user_edits/lights_0138.blend)
+BASE_ACCENT = {"type": "SUN", "loc": (-5.464, -14.149, 6.603), "rot": (0.7587, 0.0092, -0.1428), "angle": 0.0092, "size": 2.0,
+               "energy": float(os.environ.get("BASE_ACCENT", 0.78)), "color": (1.0, 0.97, 0.9)}
+NATURAL = os.environ.get("NATURAL", "1") == "1"  # материал без надстроек: десатурации, бордового, AO, желобков
 FBX = os.path.join(HERE, "..", os.environ.get("TILE_FBX", "last_tile_scaled.fbx"))
 OUT = os.path.join(HERE, "render", (sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "mixed")
                    + os.environ.get("OUT_TAG", ""))  # напр. OUT_TAG=_x8 — отдельная папка для пробы
@@ -34,7 +51,7 @@ OFF_ROUGH = env("OFF_ROUGH", 0.0)             # нижняя граница ше
 # растёт от 1 до SEA_STRETCH в полосе SEA_BLEND над уровнем (без излома)
 SEA_STRETCH = float(os.environ.get("SEA_STRETCH", 1.0))
 # Подбор света под эталон: множители энергии ламп сцены и рендерный AO компоузера (0 — выключен)
-LIGHT_GAIN = {"c_Sun_Rails": 0.3, "c_Sun_TileBevel": 2.0, "c_Sun_Border": 2.0, "c_Sun_Tile3": 3.0}
+LIGHT_GAIN = {"c_Sun_Rails": 0.2, "c_Sun_TileBevel": 0.0, "c_Sun_Border": 2.0, "c_Sun_Tile3": 2.4}
 LIGHT_GAIN.update({k: float(v) for k, v in (kv.split("=") for kv in os.environ.get("LIGHTS", "").split(",") if kv)})
 RENDER_AO = float(os.environ.get("RENDER_AO", 1.0))  # авторское 0.85
 AO_DIST = float(os.environ.get("AO_DIST", 0.3))        # радиус рендерного AO (авторский 1.0): меньше — уже и резче
@@ -46,6 +63,10 @@ BASE_AO_POW = float(os.environ.get("BASE_AO_POW", 2.0))
 # уходит, узкие впадины остаются. 0 — выключено
 BASE_AO_DETAIL = float(os.environ.get("BASE_AO_DETAIL", 3.0))  # степень
 AO_DETAIL_RADIUS = 24  # px текстуры 4096: всё шире — считается крупной тенью и вычитается
+# Свет включённых путей как в авторском Untitled.blend (Clean): c_Sun_Rails в исходной силе 9500 и размере 6,
+# фон — только размытый HDRI (без резкого в отражениях), рендерный AO 0.85 с радиусом 1.0
+OLD_ON_LIGHT = os.environ.get("OLD_ON_LIGHT", "0") == "1"
+ON_ENV = float(os.environ.get("ON_ENV", 0.8))  # сила HDRI в проходе включённых путей (у остальных — 1)
 RAIL_SHADOW = os.environ.get("RAIL_SHADOW", "1") == "1"  # тень и окклюзия путей на подложке — в слое путей
 # Отдельный проход «shadow»: тень путей от солнца строго сверху на прозрачном фоне (размытие — ещё и растром)
 SHADOW_PASS = os.environ.get("SHADOW_PASS", "1") == "1"
@@ -56,6 +77,8 @@ SUN_WHITE = os.environ.get("SUN_WHITE", "1") == "1"    # солнца рукав
 # Резкий HDRI, который видят только глянцевые лучи (отражения): поворот вокруг Z и гамма (>1 — контрастнее).
 # Только в проходах путей: подложка рендерится отдельным проходом и видит HDRI как есть
 ENV_ROT = float(os.environ.get("ENV_ROT", -15.0))
+# резкий HDRI у включённых путей, выставлен автором вручную (Mapping.001, радианы; render/user_edits/lights_0036.blend; это версия 107)
+ON_ENV_ROT_XYZ = (0.0, -0.342, -0.328)
 OFF_ENV_ROT = float(os.environ.get("OFF_ENV_ROT", 45.0))  # свой поворот у убранных путей
 ENV_GAMMA = float(os.environ.get("ENV_GAMMA", 1.0))
 RAILS_LIGHT_SIZE = float(os.environ.get("RAILS_LIGHT_SIZE", 1.5))  # авторская 6.0
@@ -147,6 +170,8 @@ def final_material(name, live_ao=False):
             img.colorspace_settings.name = n.image.colorspace_settings.name
             n.image = img
             print("TEX", kind, img.colorspace_settings.name, img.size[:])
+    if NATURAL:  # текстуры — прямо в одноимённые входы, как в авторском `tile`: нормаль 1.0, бамп 0.01, без AO
+        return m
     if BASE_SAT != 1.0:
         desaturate(m)
     if live_ao and (MAROON_SAT != 1.0 or MAROON_VAL != 1.0):
@@ -171,7 +196,9 @@ def maroon(m):
     sock = next(n for n in nt.nodes if n.bl_idname == "ShaderNodeBsdfPrincipled").inputs["Base Color"]
     tex = next(n for n in nt.nodes if n.bl_idname == "ShaderNodeTexImage" and "_BaseColor" in n.image.name)
     sep = nt.nodes.new("ShaderNodeSeparateColor"); sep.mode = "HSV"
-    nt.links.new(tex.outputs["Color"], sep.inputs["Color"])
+    srgb = nt.nodes.new("ShaderNodeGamma"); srgb.inputs["Gamma"].default_value = 1 / 2.2  # пороги — в sRGB
+    nt.links.new(tex.outputs["Color"], srgb.inputs["Color"])
+    nt.links.new(srgb.outputs["Color"], sep.inputs["Color"])
     hue = nt.nodes.new("ShaderNodeMath"); hue.operation = "PINGPONG"; hue.inputs[1].default_value = 0.5
     nt.links.new(sep.outputs["Red"], hue.inputs[0])  # расстояние оттенка до красного: 0..0.5
     near = nt.nodes.new("ShaderNodeMapRange")
@@ -329,48 +356,114 @@ def stretch_above_sea(obj, z0):
     me.update()
 
 
-def render_metal_mask(sc, placed):
-    """Маска металла рукавов и декора (заклёпки) по карте Metallic, ракурс прохода base: при композите
-    с этих мест снимается тень путей — заклёпки лежат над ней. Бортики дырок в маску не входят."""
-    tex = next(n.image for n in bpy.data.materials["final_base"].node_tree.nodes
-               if n.bl_idname == "ShaderNodeTexImage" and n.image and "_Metallic" in n.image.name)
-    mask = bpy.data.materials.new("T_metal_mask")
-    nt = mask.node_tree
+def mask_material(name, value=None, tex_kind=None, hue=None, sat_min=0.0, metal_gate=False):
+    """Эмиссионный материал-маска: константа value, канал текстуры tex_kind или попадание оттенка
+    Base Color в диапазон hue (с переходом через 0 — красный) при насыщенности от sat_min."""
+    m = bpy.data.materials.new(name)
+    nt = m.node_tree
     nt.nodes.clear()
-    t = nt.nodes.new("ShaderNodeTexImage"); t.image = tex
-    uv = nt.nodes.new("ShaderNodeUVMap")
     em = nt.nodes.new("ShaderNodeEmission")
-    out = nt.nodes.new("ShaderNodeOutputMaterial")
-    nt.links.new(uv.outputs["UV"], t.inputs["Vector"])
-    nt.links.new(t.outputs["Color"], em.inputs["Color"])
-    nt.links.new(em.outputs["Emission"], out.inputs["Surface"])
-    black = bpy.data.materials.new("T_black")
-    black.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0, 0, 0, 1)
-    black.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 1.0
-    keep_mats = {}
+    nt.links.new(em.outputs["Emission"], nt.nodes.new("ShaderNodeOutputMaterial").inputs["Surface"])
+    if value is not None:
+        em.inputs["Color"].default_value = (value, value, value, 1)
+        return m
+    src = bpy.data.materials["final_base"].node_tree.nodes
+    t = nt.nodes.new("ShaderNodeTexImage")
+    t.image = next(n.image for n in src if n.bl_idname == "ShaderNodeTexImage" and n.image and f"_{tex_kind}" in n.image.name)
+    nt.links.new(nt.nodes.new("ShaderNodeUVMap").outputs["UV"], t.inputs["Vector"])
+    if hue is None:
+        nt.links.new(t.outputs["Color"], em.inputs["Color"])
+        return m
+    sep = nt.nodes.new("ShaderNodeSeparateColor"); sep.mode = "HSV"
+    srgb = nt.nodes.new("ShaderNodeGamma"); srgb.inputs["Gamma"].default_value = 1 / 2.2  # пороги — в sRGB, как в Painter
+    nt.links.new(t.outputs["Color"], srgb.inputs["Color"])
+    nt.links.new(srgb.outputs["Color"], sep.inputs["Color"])
+    lo, hi = hue
+    def step(sock, edge, rising):
+        mr = nt.nodes.new("ShaderNodeMapRange")
+        mr.inputs["From Min"].default_value, mr.inputs["From Max"].default_value = (edge - 0.03, edge + 0.03) if rising else (edge + 0.03, edge - 0.03)
+        nt.links.new(sock, mr.inputs["Value"])
+        return mr.outputs["Result"]
+    a, b = step(sep.outputs["Red"], lo, True), step(sep.outputs["Red"], hi, False)
+    band = nt.nodes.new("ShaderNodeMath"); band.operation = "MINIMUM" if lo < hi else "MAXIMUM"
+    nt.links.new(a, band.inputs[0]); nt.links.new(b, band.inputs[1])
+    mul = nt.nodes.new("ShaderNodeMath"); mul.operation = "MULTIPLY"
+    nt.links.new(band.outputs["Value"], mul.inputs[0]); nt.links.new(step(sep.outputs["Green"], sat_min, True), mul.inputs[1])
+    out = mul.outputs["Value"]
+    if metal_gate:  # только металл: медь и латунь, а не бежевая краска того же оттенка
+        mt = nt.nodes.new("ShaderNodeTexImage")
+        mt.image = next(n.image for n in src if n.bl_idname == "ShaderNodeTexImage" and n.image and "_Metallic" in n.image.name)
+        nt.links.new(t.inputs["Vector"].links[0].from_socket, mt.inputs["Vector"])
+        g = nt.nodes.new("ShaderNodeMath"); g.operation = "MULTIPLY"
+        nt.links.new(out, g.inputs[0]); nt.links.new(step(mt.outputs["Color"], 0.5, True), g.inputs[1])
+        out = g.outputs["Value"]
+    nt.links.new(out, em.inputs["Color"])
+    return m
+
+
+def render_id(sc, placed, name, assign):
+    """Проход-маска: assign(объект, роль) -> список материалов по слотам или None (скрыть). Свет и мир
+    погашены, материалы эмиссионные; 64 сэмпла — края масок гладкие."""
+    keep_mats, keep_hide = {}, {}
     for role, objs in placed.items():
         for o in objs:
-            keep_mats[o] = o.data.materials[0]
-            o.hide_render = role.startswith("rail")
+            keep_mats[o] = list(o.data.materials)
+            keep_hide[o] = (o.hide_render, o.is_holdout, o.is_shadow_catcher)
+            mats = assign(o, role)
+            o.hide_render = mats is None
             o.is_holdout = o.is_shadow_catcher = False
-            o.data.materials[0] = mask if role in ("plates", "decor") else black
+            for i, m in enumerate(mats or []):
+                o.data.materials[i] = m
     bg = sc.world.node_tree.nodes["Background"].inputs["Strength"]
     keep = bg.default_value, sc.render.use_compositing, sc.cycles.samples, sc.view_settings.view_transform
     bg.default_value = 0.0
     sc.render.use_compositing = False
-    sc.cycles.samples = 16
+    sc.cycles.samples = 64
     sc.view_settings.view_transform = "Standard"
     lamps = {o: o.hide_render for o in sc.objects if o.type == "LIGHT"}
     for o in lamps:
         o.hide_render = True
-    os.makedirs(os.path.join(OUT, "metal"), exist_ok=True)
-    sc.render.filepath = os.path.join(OUT, "metal", "tile.png")
+    os.makedirs(os.path.join(OUT, name), exist_ok=True)
+    sc.render.filepath = os.path.join(OUT, name, "tile.png")
     bpy.ops.render.render(write_still=True)
     for o, h in lamps.items():
         o.hide_render = h
     bg.default_value, sc.render.use_compositing, sc.cycles.samples, sc.view_settings.view_transform = keep
-    for o, m in keep_mats.items():
-        o.data.materials[0] = m
+    for o, ms in keep_mats.items():
+        for i, m in enumerate(ms):
+            o.data.materials[i] = m
+        o.hide_render, o.is_holdout, o.is_shadow_catcher = keep_hide[o]
+
+
+def render_mask(sc, placed, name, mats):
+    """Маска в ракурсе base (пути скрыты): материал на роль из mats, прочие роли — чёрные."""
+    black = mask_material("T_black", value=0.0)
+    render_id(sc, placed, name, lambda o, role: None if role.startswith("rail")
+              else [mats.get(role, black)] * len(o.data.materials))
+
+
+def render_masks(sc, placed):
+    """Маски категорий (по объектам) и колормапы: вид подложки (путей нет) и вид каждого прохода путей
+    (подложка чёрная — закрывает то же, что в проходе; путь другого состояния скрыт)."""
+    black, white = mask_material("T_black", value=0.0), mask_material("T_white", value=1.0)
+
+    def flat(rgb):
+        m = mask_material("T_flat", value=1.0)
+        next(n for n in m.node_tree.nodes if n.bl_idname == "ShaderNodeEmission").inputs["Color"].default_value = (*rgb, 1)
+        return m
+
+    views = [("base", None, BASE_CATS)] + [(st, "rail_" + st, RAIL_CATS) for st in ("off", "on")]
+    for view, rail_role, cats in views:
+        def assign_for(pick, rail_role=rail_role):
+            def assign(o, role):
+                if role.startswith("rail"):
+                    return [pick(c) for c in o["cats"]] if role == rail_role else None
+                return [pick(c) for c in o["cats"]] if rail_role is None else [black] * len(o.data.materials)
+            return assign
+        for cat in cats:
+            render_id(sc, placed, f"c_{view}_{cat}", assign_for(lambda c, cat=cat: white if c == cat else black))
+        palette = {c: flat(rgb) for c, rgb in cats.items()}
+        render_id(sc, placed, f"colormap_{view}", assign_for(lambda c, palette=palette: palette[c]))
 
 
 def render_shadow(sc, placed):
@@ -408,6 +501,71 @@ def render_shadow(sc, placed):
         o.hide_render = h
 
 
+# Категории для слоёв PSD — по объектам и их несвязным кускам, не по цвету текстуры.
+# Цвет — только для колормапы (наглядная карта категорий).
+BASE_CATS = {"arms": (0.85, 0.80, 0.70), "borders": (0.45, 0.45, 0.55), "rivets": (1.0, 1.0, 1.0),
+             "copper": (0.75, 0.30, 0.15), "rings": (0.95, 0.75, 0.10), "pistons": (0.25, 0.55, 0.95),
+             "pits": (0.25, 0.60, 0.30)}
+RAIL_CATS = {"straight": (0.55, 0.80, 0.95), "curve": (0.95, 0.45, 0.85), "handles": (0.95, 0.85, 0.40)}
+
+
+def loose_parts(bm):
+    seen, parts = set(), []
+    for f in bm.faces:
+        if f.index in seen:
+            continue
+        stack, comp = [f], []
+        seen.add(f.index)
+        while stack:
+            x = stack.pop(); comp.append(x)
+            for e in x.edges:
+                for y in e.link_faces:
+                    if y.index not in seen:
+                        seen.add(y.index); stack.append(y)
+        parts.append(comp)
+    return parts
+
+
+def categorize(o, name, role):
+    """Раскладывает грани меша по категориям: слот материала = категория (материал во всех слотах тот же,
+    рендер не меняется). Пишет список категорий по слотам в o["cats"].
+    static_decor: заклёпки — мелкие куски, медь (бордовые пластины) — плоские, остальное — механизмы в дырах.
+    Угловой путь: дуга — кусок с самой высокой точкой, остальные куски — ручки."""
+    if role == "plates":
+        cats = ["arms"]
+    elif role == "borders":
+        cats = ["borders"]
+    elif name == "tile_2_2":
+        cats = ["rings"]
+    elif name.startswith("tile_1_"):
+        cats = ["pistons"]
+    elif role.startswith("rail") and not (name.split("_")[1] in ("NE", "NW", "SE", "SW") and name.count("_") == 2):
+        cats = ["straight"]
+    else:
+        import bmesh
+        bm = bmesh.new(); bm.from_mesh(o.data)
+        parts = loose_parts(bm)
+        if role.startswith("rail"):
+            rail = max(parts, key=lambda c: max(v.co.z for f in c for v in f.verts))
+            pick = lambda c: "curve" if c is rail else "handles"
+        else:
+            def pick(c):
+                co = [v.co for f in c for v in f.verts]
+                ext = [max(p[i] for p in co) - min(p[i] for p in co) for i in range(3)]
+                return "rivets" if max(ext) < 0.5 else "copper" if ext[2] < 0.25 else "pits"
+        cats = []
+        for c in parts:
+            k = pick(c)
+            if k not in cats:
+                cats.append(k)
+            for f in c:
+                f.material_index = cats.index(k)
+        bm.to_mesh(o.data); bm.free()
+    for _ in cats[1:]:
+        o.data.materials.append(o.data.materials[0])
+    o["cats"] = cats
+
+
 def new_coll(sc, name):
     c = bpy.data.collections.new(name)
     sc.collection.children.link(c)
@@ -434,17 +592,24 @@ def main():
     placed = {r: [] for r in colls}
     for name, role in pieces():
         src = bpy.data.objects[name]
-        o = bpy.data.objects.new("t_" + name, src.data)
-        # в to_claude.fbx ON_* лежали в своём базисе (см, Y вверх) — в last_tile_scaled.fbx уже в базисе тайла
+        # пути в FBX иногда приходят в своём базисе (см, Y вверх, растяжка √2): ON_* в to_claude.fbx, OFF_* в last_new.fbx от 23:37
         cm = max(abs(c) for v in src.bound_box for c in (src.matrix_world @ Vector(v))) > 50
-        world = ON_FIX @ src.matrix_world if name.startswith("ON_") and cm else src.matrix_world
-        o.matrix_world = STRETCH @ world
+        world = ON_FIX @ src.matrix_world if name.startswith(("ON_", "OFF_")) and cm else src.matrix_world
+        # трансформ запекаем в вершины: у повёрнутых дуг OFF масштаб (1, 1, 0.707), и растяжка √2 по Y
+        # даёт перекос, который матрица объекта (loc/rot/scale) не держит — дуги искажались
+        if name.startswith("ON_") and ON_LIFT:
+            world = Matrix.Translation((0, 0, ON_LIFT)) @ world
+        me = src.data.copy()
+        me.transform(world)
+        o = bpy.data.objects.new("t_" + name, me)
+        o.matrix_world = STRETCH
         o.data.materials.clear()
         if role != "rail_off":
             o.data.materials.append(mat if role == "rail_on" else mat_base)
         else:
             curve = name[4:6] in ("NE", "NW", "SE", "SW") and name.count("_") == 2  # OFF_NE_2, не OFF_NE_EW_SE_2
             o.data.materials.append(mat_off_curve if curve else mat_off)
+        categorize(o, name, role)
         colls[role].objects.link(o)
         if not role.startswith("rail"):
             blockers.objects.link(o)
@@ -487,10 +652,36 @@ def main():
         for name in ("c_Sun_TileBevel", "c_Sun_Tile3"):
             L[name].data.color = (1.0, 1.0, 1.0)
     L["c_Sun_Rails"].data.size = RAILS_LIGHT_SIZE  # меньше лампа — резче блики на путях
+    # верхняя заливка включённых путей: широкая area-лампа над тайлом, светит только на них (настраивается вручную)
+    fill = bpy.data.objects.new("T_Rails_Fill", bpy.data.lights.new("T_Rails_Fill", "AREA"))
+    fill.data.shape, fill.data.size, fill.data.energy = "DISK", RAILS_FILL["size"], RAILS_FILL["energy"]
+    fill.data.color = RAILS_FILL["color"]
+    fill.location, fill.rotation_euler = RAILS_FILL["loc"], RAILS_FILL["rot"]
+    sc.collection.objects.link(fill)
+    fill.light_linking.receiver_collection = colls["rail_on"]
+    # акцент на рукава (бело-жёлтая база): небольшая area-лампа, светит только на рукава, с тенями от базы
+    acc = bpy.data.objects.new("T_Base_Accent", bpy.data.lights.new("T_Base_Accent", BASE_ACCENT["type"]))
+    acc.data.energy, acc.data.color = BASE_ACCENT["energy"], BASE_ACCENT["color"]
+    if BASE_ACCENT["type"] == "SUN":
+        acc.data.angle = BASE_ACCENT["angle"]
+    else:
+        acc.data.shape, acc.data.size = "DISK", BASE_ACCENT["size"]
+    acc.location = BASE_ACCENT["loc"]
+    acc.rotation_euler = BASE_ACCENT["rot"] or (-Vector(BASE_ACCENT["loc"])).to_track_quat("-Z", "Y").to_euler()
+    sc.collection.objects.link(acc)
+    acc.light_linking.receiver_collection = colls["plates"]
+    acc.light_linking.blocker_collection = blockers
+    for name, (p_loc, p_rot, p_col) in LIGHT_POSE.items():
+        L[name].location, L[name].rotation_euler = p_loc, p_rot
+        if p_col:
+            L[name].data.color = p_col
     sun_rails, rails_energy = L["c_Sun_Rails"], L["c_Sun_Rails"].data.energy
 
     # кадр поднят на 3 px из 80: спрайт ложится на эталон (shift — в долях ширины кадра)
     sc.camera.data.shift_y += DOWN_PX / 80
+
+    if os.environ.get("SAMPLES"):  # сэмплы основных проходов (в сцене — 1024)
+        sc.cycles.samples = int(os.environ["SAMPLES"])
 
     r = sc.render
     r.resolution_x = r.resolution_y = PX
@@ -507,9 +698,19 @@ def main():
         rails_pass = name != "base"
         sun_rails.light_linking.receiver_collection = colls["rail_off" if name == "rails_off" else "rail_on"]
         sun_rails.data.energy = rails_energy * (OFF_LIGHT if name == "rails_off" else 1.0)
-        rot.inputs["Rotation"].default_value[2] = math.radians(
-            OFF_ENV_ROT if name == "rails_off" else ENV_ROT if rails_pass else 0.0)
+        rot.inputs["Rotation"].default_value = (
+            ON_ENV_ROT_XYZ if name == "rails_on" else (0, 0, math.radians(OFF_ENV_ROT if rails_pass else 0.0)))
         gam.inputs["Gamma"].default_value = ENV_GAMMA if rails_pass else 1.0
+        old = OLD_ON_LIGHT and name == "rails_on"
+        if old:
+            sun_rails.data.energy, sun_rails.data.size = rails_energy / LIGHT_GAIN["c_Sun_Rails"], 6.0
+        else:
+            sun_rails.data.size = RAILS_LIGHT_SIZE
+        wn.links.new((wn.nodes["Environment Texture.001"].outputs["Color"] if old else wn.nodes["Mix"].outputs["Result"]),
+                     wn.nodes["Background"].inputs["Color"])
+        sc.compositing_node_group.nodes["C_AO"].inputs["Factor"].default_value = 0.85 if old else RENDER_AO
+        sc.world.light_settings.distance = 1.0 if old else AO_DIST
+        wn.nodes["Background"].inputs["Strength"].default_value = ON_ENV if name == "rails_on" and not old else 1.0
         for role, objs in placed.items():
             # в проходах путей подложка ловит их тень и окклюзию (shadow catcher) и отдаёт в альфу
             # слоя 2: темнеет только там, где пути есть, а слой 1 остаётся общим для всех масок
@@ -523,7 +724,7 @@ def main():
         bpy.ops.render.render(write_still=True)
 
     if SHADOW_PASS and (not only or "metal" in only):
-        render_metal_mask(sc, placed)
+        render_masks(sc, placed)
     if SHADOW_PASS and (not only or "shadow" in only):
         render_shadow(sc, placed)
 

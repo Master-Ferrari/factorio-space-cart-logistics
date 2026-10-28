@@ -28,25 +28,63 @@ def load(name):
     return Image.open(SRC / name / "tile.png").convert("RGBA")
 
 
+def has(name):
+    return (SRC / name / "tile.png").is_file()
+
+
 def rivet_mask():
-    """Заклёпки из прохода metal: самый яркий металл (>235) мелкими пятнами. Крупные детали декора
-    отсеиваются по площади, стержни поршней — по положению: они лежат на осях креста тайла."""
-    from scipy import ndimage
-    m = np.asarray(load("metal").convert("L")) > 235
-    lab, n = ndimage.label(m)
-    keep = np.zeros_like(m)
-    for i, (sy, sx) in enumerate(ndimage.find_objects(lab), 1):
-        area = int((lab[sy, sx] == i).sum())
-        cx, cy = (sx.start + sx.stop) / 2, (sy.start + sy.stop) / 2
-        on_axis = abs(cx - AXIS_X * K) < 8 * K or abs(cy - AXIS_Y * K) < 8 * K
-        if 30 * K * K <= area <= RIVET_MAX_AREA * K * K and not on_axis:
-            keep[lab == i] = True
-    return Image.fromarray((keep * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(2 * K + 1))
+    """Заклёпки — отдельные куски меша декора (render_tile.py: categorize), маска c_base_rivets."""
+    return load("c_base_rivets").convert("L").filter(ImageFilter.GaussianBlur(0.4 * K))
+
+
+def f(im):
+    """Маска 0..1 со сглаженным краем."""
+    return np.asarray(im.convert("L").filter(ImageFilter.GaussianBlur(0.6 * K)), dtype=np.float32) / 255
+
+
+def split(img, order, rest, titles):
+    """Делит img на слои по маскам order [(имя, маска)] с приоритетом; остаток — слою rest."""
+    left = np.ones(img.size[::-1], np.float32)
+    share = {}
+    for title, m in order:
+        take = np.minimum(m, left); left -= take; share[title] = take
+    share[rest] = left
+    rgba = np.asarray(img, dtype=np.float32)
+    out = []
+    for title in titles:
+        a = rgba.copy(); a[..., 3] *= share[title]
+        out.append((title, Image.fromarray(a.clip(0, 255).astype(np.uint8), "RGBA"), True))
+    return out
+
+
+# медное: бордовые пластины и кольца вокруг штоков — один материал, один слой
+BASE_LAYERS = [("1a рукава", ("arms",)), ("1b механизмы в дырах", ("pits",)), ("1c поршни", ("pistons",)),
+               ("1d медное", ("copper", "rings")), ("1f бортики дырок", ("borders",)), ("1g заклёпки", ("rivets",))]
+RAIL_LAYERS = [("прямые", "straight"), ("дуги углов", "curve"), ("ручки дуг", "handles")]
+
+
+def split_rails(img, state, title, letter):
+    """Убранные или включённые пути по объектам: прямые, дуги углов, ручки дуг; остаток прохода —
+    окклюзия, которую пути кладут на подложку."""
+    if not all(has(f"c_{state}_{c}") for _, c in RAIL_LAYERS):
+        return [(title, img, True)]
+    order = [(f"{letter}{i + 1} {title} — {t}", f(load(f"c_{state}_{c}"))) for i, (t, c) in enumerate(RAIL_LAYERS)]
+    occ = f"{letter}0 {title} — окклюзия на подложке"
+    return [(f"{letter} {title} целиком", img, True)] + split(img, order, occ, [occ] + [t for t, _ in order])
+
+
+def split_base(base):
+    """Подложка по объектам (render_tile.py: categorize); «подложка целиком» внизу и видима — закрывает
+    щели на стыках масок."""
+    if not all(has(f"c_base_{c}") for _, cs in BASE_LAYERS for c in cs):
+        return None
+    order = [(t, np.maximum.reduce([f(load(f"c_base_{c}")) for c in cs])) for t, cs in BASE_LAYERS]
+    return [("1 подложка целиком", base, True)] + split(base, order, "1z прочее", [t for t, _ in BASE_LAYERS] + ["1z прочее"])
 
 
 base = load("base")
 K = base.width // 320  # пиксельные параметры заданы для кадра 320 (×4); в ×8 они вдвое больше
-rivets = rivet_mask() if (SRC / "metal" / "tile.png").is_file() else None
+rivets = rivet_mask() if has("c_base_rivets") else None
 if rivets is not None and RIVET_EXPOSURE:
     base = Image.composite(apply_exposure(base, RIVET_EXPOSURE, 0.0, 1.0), base, rivets.filter(ImageFilter.GaussianBlur(0.7 * K)))
 off = apply_exposure(load("rails_off"), OFF_EXPOSURE, 0.0, 1.0)
@@ -70,12 +108,14 @@ layer2.save(SRC / "layer2_80.png")
 # все слои в PSD в исходном разрешении, уже обработанные (экспозиции, размытие тени, заклёпки):
 # стопка «Обычный» сверху вниз даёт ровно наш итог до уменьшения
 from psd_write import write_psd
-psd = [("1 подложка", base, True)]
+psd = split_base(base) or [("1 подложка", base, True)]
 if "2a тень путей" in parts:
     psd.append(("2a тень путей", parts["2a тень путей"], True))
-psd += [("2b убранные пути", off, True), ("2c включённые пути", on, True)]
-if rivets is not None:
-    psd.append(("маска заклёпок", Image.merge("RGBA", (rivets,) * 4), False))
+psd += split_rails(off, "off", "убранные пути", "2b")
+psd += split_rails(on, "on", "включённые пути", "2c")
+for view, title in (("base", "колормапа подложки"), ("off", "колормапа убранных путей"), ("on", "колормапа включённых путей")):
+    if has(f"colormap_{view}"):
+        psd.append((title, load(f"colormap_{view}"), False))
 write_psd(SRC / "layers.psd", psd)
 # составные части слоёв по отдельности, 80 px — для раздела «Слои» в compare.html
 (SRC / "parts").mkdir(exist_ok=True)
@@ -93,5 +133,6 @@ for i, im in enumerate((full, layer1, layer2, game)):
 sheet.save(SRC / "preview.png")
 if len(sys.argv) > 2:
     (HERE / "render" / "versions").mkdir(exist_ok=True)
-    game.save(HERE / "render" / "versions" / f"{SRC.name} {sys.argv[2]}.png")
+    label = sys.argv[2].replace(":", " —").replace("/", "-")  # двоеточие в имени файла Windows понимает как поток NTFS
+    game.save(HERE / "render" / "versions" / f"{SRC.name} {label}.png")
 print("ok", SRC)
