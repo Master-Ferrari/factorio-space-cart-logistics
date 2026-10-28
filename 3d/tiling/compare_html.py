@@ -1,9 +1,10 @@
-"""Сравнение в HTML, 80 px спрайты ×3 без сглаживания, картинки внутри файла:
-шторка «эталон | наш рендер» и переключатель версий из render/versions (их пишет compose_tile.py с меткой).
+"""Сравнение спрайтов тайла (80 px ×3, без сглаживания, картинки внутри файла) — страница для артефакта:
+шторка «эталон | версия» и переключатель версий из render/versions (их пишет compose_tile.py с меткой);
+под шторкой — версия, выбранная в переключателе.
 
   python 3d/tiling/compare_html.py [all_on]   -> 3d/tiling/render/compare.html
 """
-import base64, io, sys
+import base64, io, json, re, sys
 from pathlib import Path
 from PIL import Image
 
@@ -16,74 +17,124 @@ SCALE = 3
 def b64(im):
     buf = io.BytesIO()
     im.save(buf, "PNG")
-    return base64.b64encode(buf.getvalue()).decode()
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-ref = Image.open(HERE / "render" / "reference_80.png").convert("RGBA")
-ours = Image.alpha_composite(Image.open(SRC / "layer1_80.png").convert("RGBA"),
-                             Image.open(SRC / "layer2_80.png").convert("RGBA"))
+def rgba(p):
+    return Image.open(p).convert("RGBA")
+
+
+ref = rgba(HERE / "render" / "reference_80.png")
+num = lambda p: (re.sub(r" \d.*", "", p.stem), int((re.findall(r"\d+", p.stem) or [0])[0]), p.stem)  # «all_on 10» после «all_on 9»
+versions = [(p.stem, rgba(p)) for p in sorted((HERE / "render" / "versions").glob("*.png"), key=num)]
 W = ref.width * SCALE
-versions = sorted((HERE / "render" / "versions").glob("*.png"))
-ver_imgs = ",".join(f'["{p.stem}","data:image/png;base64,{b64(Image.open(p).convert("RGBA"))}"]' for p in versions)
+# раздел «Слои»: части из compose_tile.py (render/<вариация>/parts) и два игровых слоя
+pdir = SRC / "parts"
+layers = [(p.stem, rgba(p)) for p in sorted(pdir.glob("*.png"))] if pdir.is_dir() else []
+if layers:
+    l1, l2 = rgba(SRC / "layer1_80.png"), rgba(SRC / "layer2_80.png")
+    layers += [("= слой 2 (тень, убранные, включённые)", l2), ("= итог (слой 1 + слой 2)", Image.alpha_composite(l1, l2))]
+layer_html = "".join(f'<figure><div class="stage small"><img src="{b64(im)}" alt="{n}"></div><figcaption>{n}</figcaption></figure>'
+                     for n, im in layers)
+data = json.dumps({"ref": b64(ref),
+                   "versions": [[n, b64(im)] for n, im in versions]}, ensure_ascii=False)
 
-html = f"""<!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><title>Тайл: эталон и рендер</title>
+html = f"""<title>Сверка тайла рельса</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <style>
-  body {{ margin: 0; background: #1e1e1e; color: #ccc; font: 14px sans-serif;
-         display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px; }}
-  .bg {{ display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }}
-  h3 {{ margin: 16px 0 0; font-weight: normal; color: #eee; }}
-  .bg button {{ background: #333; color: #ccc; border: 1px solid #555; padding: 4px 10px; cursor: pointer; }}
-  .wrap {{ position: relative; width: {W}px; height: {W}px; cursor: ew-resize; user-select: none; }}
-  .wrap img {{ position: absolute; inset: 0; width: {W}px; height: {W}px; image-rendering: pixelated; }}
+  /* Один тёмный «стол» для пиксель-арта: картинка в центре, кнопки выбора над ней */
+  :root {{
+    --bg: #1c1d1f; --panel: #26272a; --line: #3a3b3f; --fg: #d8d6d0; --dim: #8d8b85; --accent: #ff8c1a;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace; --sans: system-ui, "Segoe UI", sans-serif;
+    --stage: #1c1d1f;
+    color-scheme: dark;
+  }}
+  body {{ background: var(--bg); color: var(--fg); font: 14px/1.4 var(--sans);
+         padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+         padding-block: 24px; }}
+  main {{ display: flex; flex-direction: column; align-items: center; gap: 28px; }}
+  section {{ display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 100%; }}
+  h2 {{ margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }}
+  .chips {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 640px; }}
+  .chips button {{ font: 12px var(--mono); background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+                  border-radius: 3px; padding: 4px 9px; cursor: pointer; }}
+  .chips button[aria-pressed="true"] {{ border-color: var(--accent); color: var(--accent); }}
+  .chips button:focus-visible {{ outline: 2px solid var(--accent); outline-offset: 2px; }}
+  .stage {{ position: relative; width: {W}px; max-width: 100%; aspect-ratio: 1;
+           background: var(--stage); user-select: none; touch-action: none; }}
+  .stage img {{ position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }}
+  /* зона шторки шире картинки: тянуть удобно и за её краями */
+  .swipe-zone {{ padding-inline: 120px; max-width: 100%; cursor: ew-resize; touch-action: none; }}
   #top {{ clip-path: inset(0 calc(100% - var(--x)) 0 0); }}
-  #bar {{ position: absolute; top: 0; bottom: 0; left: var(--x); width: 1px; background: #ff8c1a; }}
-  .labels {{ width: {W}px; display: flex; justify-content: space-between; }}
-</style></head><body>
-<div class="labels"><span>← эталон</span><span>{VARIANT} →</span></div>
-<div class="wrap" id="wrap" style="--x: 50%">
-  <img src="data:image/png;base64,{b64(ours)}" alt="рендер">
-  <img id="top" src="data:image/png;base64,{b64(ref)}" alt="эталон">
-  <div id="bar"></div>
-</div>
-<div>масштаб {SCALE * 100}%, без сглаживания · тяни мышью</div>
-<h3>Версии</h3>
-<div class="bg" id="vbtns"></div>
-<div class="wrap" id="vwrap" style="cursor: pointer"><img id="vimg" alt="версия"></div>
-<div>клик по картинке или ← → — следующая версия</div>
-<div class="bg">фон:
-  <button data-c="#1e1e1e">тёмный</button><button data-c="#4a4a3a">земля</button><button data-c="#ffffff">белый</button>
-</div>
+  #bar {{ position: absolute; top: 0; bottom: 0; left: var(--x); width: 1px; background: var(--accent); }}
+  #flip {{ cursor: pointer; }}
+  .labels {{ width: {W}px; max-width: 100%; display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--dim); }}
+  .hint {{ font-size: 12px; color: var(--dim); }}
+  .layers {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; max-width: 900px; }}
+  figure {{ margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 160px; }}
+  .stage.small {{ width: 160px; }}
+  figcaption {{ font: 12px var(--mono); color: var(--dim); text-align: center; }}
+</style>
+<main>
+  <section>
+    <h2>Эталон | версия</h2>
+    <div class="labels"><span>← эталон</span><span id="ulabel"></span></div>
+    <div class="swipe-zone" id="zone">
+      <div class="stage" id="swipe" style="--x: 50%">
+        <img id="under" alt="версия">
+        <img id="top" alt="эталон">
+        <div id="bar"></div>
+      </div>
+    </div>
+    <div class="hint">80 px × {SCALE}, без сглаживания · веди мышью или пальцем, можно и сбоку от картинки</div>
+  </section>
+  <section>
+    <h2>Версии</h2>
+    <div class="chips" id="vbtns"></div>
+    <div class="stage" id="flip"><img id="vimg" alt="версия"></div>
+    <div class="hint">клик по картинке или ← → — следующая версия</div>
+  </section>
+  <section>
+    <h2>Слои: {VARIANT}</h2>
+    <div class="layers">{layer_html}</div>
+    <div class="hint">слой 1 — подложка; слой 2 рисуется поверх: тень путей, затем убранные, затем включённые</div>
+  </section>
+  <section>
+    <div class="chips" id="bgs">
+      <button data-c="#1c1d1f" aria-pressed="true">фон: тёмный</button>
+      <button data-c="#4a4a3a">фон: земля</button>
+      <button data-c="#ffffff">фон: белый</button>
+    </div>
+  </section>
+</main>
 <script>
-  const wrap = document.getElementById('wrap');
+  const D = {data};
+  const $ = id => document.getElementById(id);
+  const chips = (box, items, pick) => items.forEach((it, k) => {{
+    const b = document.createElement('button'); b.textContent = it[0]; b.onclick = () => pick(k); box.appendChild(b);
+  }});
+  const press = (box, i) => [...box.children].forEach((b, k) => b.setAttribute('aria-pressed', k === i));
+
+  $('top').src = D.ref;
+  const swipe = $('swipe'), zone = $('zone');
   const move = e => {{
-    const r = wrap.getBoundingClientRect();
-    const x = Math.min(Math.max((e.touches ? e.touches[0].clientX : e.clientX) - r.left, 0), r.width);
-    wrap.style.setProperty('--x', x + 'px');
+    const r = swipe.getBoundingClientRect(), p = e.touches ? e.touches[0] : e;
+    swipe.style.setProperty('--x', Math.min(Math.max(p.clientX - r.left, 0), r.width) + 'px');
   }};
-  wrap.addEventListener('mousemove', move);
-  wrap.addEventListener('touchmove', move);
-  const vers = [{ver_imgs}];
-  let vi = vers.length - 1;
-  const vbtns = document.getElementById('vbtns'), vimg = document.getElementById('vimg');
-  const show = i => {{
-    vi = (i + vers.length) % vers.length;
-    vimg.src = vers[vi][1];
-    [...vbtns.children].forEach((b, k) => b.style.borderColor = k === vi ? '#ff8c1a' : '#555');
-  }};
-  vers.forEach((v, k) => {{
-    const b = document.createElement('button'); b.textContent = v[0]; b.onclick = () => show(k); vbtns.appendChild(b);
+  zone.addEventListener('pointermove', move);
+  zone.addEventListener('touchmove', move, {{ passive: true }});
+
+  let vi = D.versions.length - 1;
+  const show = i => {{ if (!D.versions.length) return; vi = (i + D.versions.length) % D.versions.length;
+    $('vimg').src = $('under').src = D.versions[vi][1]; $('ulabel').textContent = D.versions[vi][0] + ' →'; press($('vbtns'), vi); }};
+  chips($('vbtns'), D.versions, show); show(vi);
+  $('flip').onclick = () => show(vi + 1);
+  document.addEventListener('keydown', e => {{ if (e.key === 'ArrowRight') show(vi + 1); if (e.key === 'ArrowLeft') show(vi - 1); }});
+
+  [...$('bgs').children].forEach((b, k) => b.onclick = () => {{
+    document.documentElement.style.setProperty('--stage', b.dataset.c); press($('bgs'), k);
   }});
-  document.getElementById('vwrap').onclick = () => show(vi + 1);
-  document.addEventListener('keydown', e => {{
-    if (e.key === 'ArrowRight') show(vi + 1);
-    if (e.key === 'ArrowLeft') show(vi - 1);
-  }});
-  if (vers.length) show(vi);
-  document.querySelectorAll('.bg button[data-c]').forEach(b =>
-    b.onclick = () => document.body.style.background = b.dataset.c);
 </script>
-</body></html>
 """
 out = HERE / "render" / "compare.html"
 out.write_text(html, encoding="utf-8")
