@@ -14,15 +14,21 @@ HDRI, узлы материала `tile` (с текстурами `fininal tex`)
 Untitled.blend не сохраняется; рабочая копия сцены -> 3d/tiling/render/render_tile.blend
 """
 import bpy, sys, os, math
-from mathutils import Matrix
+from mathutils import Matrix, Vector
+import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FBX = os.path.join(HERE, "..", "to_claude.fbx")
 OUT = os.path.join(HERE, "render", sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "mixed")
 TEX = os.path.join(HERE, "..", "fininal tex")
 PX = 320
-OFF_DARK = 0.6                 # убранные пути: затемнение
-OFF_TINT = (1.0, 0.93, 0.80)   # и тёплый тон под бело-жёлтую подложку
+OFF_DARK = 0.45                # убранные пути (прямые, центр, наконечники): затемнение
+OFF_DARK_CURVE = 0.8           # убранные дуги углов затемняются слабее
+OFF_TINT = (1.0, 0.88, 0.62)   # жёлтый тон под бело-жёлтую подложку
+# Вытяжка вверх всего, что выше «уровня моря» — верха матта c_Alpha. Наклон по Z плавно
+# растёт от 1 до SEA_STRETCH в полосе SEA_BLEND над уровнем (без излома)
+SEA_STRETCH = float(os.environ.get("SEA_STRETCH", 1.5))
+SEA_BLEND = 0.3
 DOWN_PX = 3  # опустить спрайт относительно авторского кадра, px из 80
 NORMAL_OFF, HEIGHT_FLAT = 124, 126  # Height (0..255): ниже 124 нормаль выключена, к 126 — полная
 
@@ -113,20 +119,42 @@ def add_ao(m):
         print("BSDF", name, "<- AO x", sock.links[0].from_node.inputs["A"].links[0].from_node.name if mul.inputs["A"].links else mul.inputs["A"].default_value[0])
 
 
-def off_material(m):
+def off_material(m, dark, name):
     """Убранные пути: тот же материал, цвет умножен на тёплый тёмный тон. У металла цвет и есть
     цвет отражения, так что это затемнение и цветокор именно их HDRI."""
     m = m.copy()
-    m.name = "final_off"
+    m.name = name
     nt = m.node_tree
     sock = next(n for n in nt.nodes if n.bl_idname == "ShaderNodeBsdfPrincipled").inputs["Base Color"]
     mul = nt.nodes.new("ShaderNodeMix")
     mul.data_type = "RGBA"; mul.blend_type = "MULTIPLY"
     mul.inputs["Factor"].default_value = 1.0
-    mul.inputs["B"].default_value = (*(OFF_DARK * c for c in OFF_TINT), 1.0)
+    mul.inputs["B"].default_value = (*(dark * c for c in OFF_TINT), 1.0)
     nt.links.new(sock.links[0].from_socket, mul.inputs["A"])
     nt.links.new(mul.outputs["Result"], sock)
     return m
+
+
+def sea_lift(z, z0):
+    """z -> z': ниже z0 без изменений, выше — растяжение с плавным (smoothstep) нарастанием наклона."""
+    u = np.clip((z - z0) / SEA_BLEND, 0.0, None)
+    integral = np.where(u < 1.0, u ** 3 - u ** 4 / 2, u - 0.5)  # ∫ smoothstep
+    return z + (SEA_STRETCH - 1.0) * SEA_BLEND * integral
+
+
+def stretch_above_sea(obj, z0):
+    """Деформирует вершины в мировых координатах (Z мира не затронут растяжкой √2 по Y)."""
+    me = obj.data
+    n = len(me.vertices)
+    co = np.empty(n * 3); me.vertices.foreach_get("co", co)
+    co = co.reshape(n, 3)
+    m = np.array(obj.matrix_world)
+    w = co @ m[:3, :3].T + m[:3, 3]
+    w[:, 2] = sea_lift(w[:, 2], z0)
+    inv = np.linalg.inv(m)
+    co = w @ inv[:3, :3].T + inv[:3, 3]
+    me.vertices.foreach_set("co", co.ravel())
+    me.update()
 
 
 def new_coll(sc, name):
@@ -149,7 +177,8 @@ def main():
     colls = {r: new_coll(sc, "T_" + r) for r in ("plates", "borders", "decor", "rail_on", "rail_off")}
     blockers = bpy.data.collections.new("T_blockers")  # тени для солнц подложки — всё, кроме путей
     mat = final_material()
-    mat_off = off_material(mat)
+    mat_off = off_material(mat, OFF_DARK, "final_off")
+    mat_off_curve = off_material(mat, OFF_DARK_CURVE, "final_off_curve")
     placed = {r: [] for r in colls}
     for name, role in pieces():
         src = bpy.data.objects[name]
@@ -157,11 +186,19 @@ def main():
         world = ON_FIX @ src.matrix_world if name.startswith("ON_") else src.matrix_world
         o.matrix_world = STRETCH @ world
         o.data.materials.clear()
-        o.data.materials.append(mat_off if role == "rail_off" else mat)
+        if role != "rail_off":
+            o.data.materials.append(mat)
+        else:
+            curve = name[4:6] in ("NE", "NW", "SE", "SW") and name.count("_") == 2  # OFF_NE_2, не OFF_NE_EW_SE_2
+            o.data.materials.append(mat_off_curve if curve else mat_off)
         colls[role].objects.link(o)
         if not role.startswith("rail"):
             blockers.objects.link(o)
         placed[role].append(o)
+    sea = max((alpha.matrix_world @ Vector(c)).z for c in alpha.bound_box)
+    for objs in placed.values():
+        for o in objs:
+            stretch_above_sea(o, sea)
     for o in imported:
         bpy.data.objects.remove(o)
 
