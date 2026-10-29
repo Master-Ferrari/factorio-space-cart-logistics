@@ -36,8 +36,22 @@ RAILS_FILL = {"loc": (-1.982, 7.704, 9.193), "rot": (0.0, 0.0, 0.0), "size": 19.
 # Акцентный свет рукавов (T_Base_Accent): солнце, выставлено автором вручную (render/user_edits/lights_0138.blend)
 BASE_ACCENT = {"type": "SUN", "loc": (-5.464, -14.149, 6.603), "rot": (0.7587, 0.0092, -0.1428), "angle": 0.0092, "size": 2.0,
                "energy": float(os.environ.get("BASE_ACCENT", 0.78)), "color": (1.0, 0.97, 0.9)}
+# Свет базы «под эталон»: одно жёсткое солнце слева-сверху вместо широкой заливки; рассеянного неба почти нет
+# (в игре тайл в космосе — рассеивать нечем). energy 0 — выключено, база светится прежними лампами
+BASE_KEY = {"from": (-1.0, 0.6, 1.1), "energy": float(os.environ.get("BASE_KEY", 3.5)), "angle": float(os.environ.get("BASE_KEY_ANGLE", 8)),
+            "color": (1.0, 0.98, 0.95), "replaces": ("c_Sun_Tile3", "c_Sun_Border")}
+BASE_KEY["spec"] = float(os.environ.get("BASE_KEY_SPEC", 2.0))  # доля бликов от солнца
+BASE_KEY["exposure"] = float(os.environ.get("BASE_KEY_EXPOSURE", 0.0))  # 0.5 — ручная правка 133, не в версии 130
+# лампы бликов рукавов (версия 130; ручная правка 132 — render/user_edits/lights_0242.blend): [{"at": (x, y, z), "size": .., "size_y": .. (прямоугольник), "energy": ..}], JSON в BASE_GLINTS
+BASE_GLINTS = __import__("json").loads(os.environ.get("BASE_GLINTS", '[{"at": [0, -9, 9], "size": 12, "size_y": 4, "energy": 250}, '
+                                                       '{"at": [-9, -7, 2.5], "size": 18, "size_y": 6, "energy": 700}]'))
+BASE_ENV_DIFFUSE = float(os.environ.get("BASE_ENV_DIFFUSE", 0.15))  # рассеянное небо в проходе base
 NATURAL = os.environ.get("NATURAL", "1") == "1"  # материал без надстроек: десатурации, бордового, AO, желобков
 FBX = os.path.join(HERE, "..", os.environ.get("TILE_FBX", "last_tile_scaled.fbx"))
+# Рукава со срезом (сосед есть, `____1*` под Cloner_1) — из scaling2.fbx: в last_tile_scaled.fbx они короче на 0.4 BU
+# (60 px вместо 64 до края тайла). Остальное в scaling2.fbx не годится: `____0*` и OFF_* потеряли трансформы,
+# ON_* уже подняты (ON_LIFT поднял бы их дважды). Пусто — рукава из FBX как есть.
+CUT_ARMS_FBX = os.environ.get("CUT_ARMS_FBX", "scaling2.fbx")
 OUT = os.path.join(HERE, "render", (sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "mixed")
                    + os.environ.get("OUT_TAG", ""))  # напр. OUT_TAG=_x8 — отдельная папка для пробы
 TEX = os.path.join(HERE, "..", "fininal tex")
@@ -71,7 +85,7 @@ RAIL_SHADOW = os.environ.get("RAIL_SHADOW", "1") == "1"  # тень и оккл�
 # Отдельный проход «shadow»: тень путей от солнца строго сверху на прозрачном фоне (размытие — ещё и растром)
 SHADOW_PASS = os.environ.get("SHADOW_PASS", "1") == "1"
 SHADOW_ANGLE = float(os.environ.get("SHADOW_ANGLE", 30.0))  # угловой размер солнца, град: больше — мягче
-SHADOW_SAMPLES = 256
+SHADOW_SAMPLES = int(os.environ.get("SAMPLES", 256))  # тень размывается — сэмплов как у остальных
 BASE_SAT = float(os.environ.get("BASE_SAT", 0.75))      # насыщенность Base Color (<1 — меньше желтизны)
 SUN_WHITE = os.environ.get("SUN_WHITE", "1") == "1"    # солнца рукавов белые вместо тёплых
 # Резкий HDRI, который видят только глянцевые лучи (отражения): поворот вокруг Z и гамма (>1 — контрастнее).
@@ -139,9 +153,9 @@ def arm_meshes():
     return out
 
 
-def pieces():
-    """(имя меша, роль) для выбранной вариации. Роль: plates / borders / decor / rail_on / rail_off."""
-    n = [DIR_NAMES[i] in NEIGHBOURS for i in range(8)]
+def pieces(neighbours, rails_on, rails=True):
+    """(имя меша, роль) для вариации. Роль: plates / borders / decor / rail_on / rail_off."""
+    n = [DIR_NAMES[i] in neighbours for i in range(8)]
     out = []
     arms = arm_meshes()
     for d in ARM_SUFFIX:
@@ -151,10 +165,12 @@ def pieces():
         if bits in PATTERN:
             out.append((bpy.data.objects["_".join(bits) + CORNER_SUFFIX[corner]].children[0].name, "borders"))
     out += [(name, "decor") for name in DECOR]
+    if not rails:
+        return out
     for p in PATHS:
-        out.append(((f"ON_{p}_2", "rail_on") if p in RAILS_ON else (f"OFF_{p}_2", "rail_off")))
+        out.append(((f"ON_{p}_2", "rail_on") if p in rails_on else (f"OFF_{p}_2", "rail_off")))
     for piece, users in SHARED.items():
-        out.append(((f"ON_{piece}_2", "rail_on") if RAILS_ON & set(users) else (f"OFF_{piece}_2", "rail_off")))
+        out.append(((f"ON_{piece}_2", "rail_on") if rails_on & set(users) else (f"OFF_{piece}_2", "rail_off")))
     return out
 
 
@@ -442,7 +458,10 @@ def render_mask(sc, placed, name, mats):
               else [mats.get(role, black)] * len(o.data.materials))
 
 
-def render_masks(sc, placed):
+ARM_COLORS = {"cap": (0.95, 0.55, 0.15), "cut": (0.20, 0.65, 0.95)}  # колормапа рукавов: с завитком / с обрезом
+
+
+def render_masks(sc, placed, views=("base", "off", "on")):
     """Маски категорий (по объектам) и колормапы: вид подложки (путей нет) и вид каждого прохода путей
     (подложка чёрная — закрывает то же, что в проходе; путь другого состояния скрыт)."""
     black, white = mask_material("T_black", value=0.0), mask_material("T_white", value=1.0)
@@ -452,8 +471,13 @@ def render_masks(sc, placed):
         next(n for n in m.node_tree.nodes if n.bl_idname == "ShaderNodeEmission").inputs["Color"].default_value = (*rgb, 1)
         return m
 
-    views = [("base", None, BASE_CATS)] + [(st, "rail_" + st, RAIL_CATS) for st in ("off", "on")]
-    for view, rail_role, cats in views:
+    all_views = [("base", None, BASE_CATS)] + [(st, "rail_" + st, RAIL_CATS) for st in ("off", "on")]
+    for view, rail_role, cats in all_views:
+        if view not in views:
+            if view == "base" and "base_rivets" in views:  # для путей: только заклёпки (над тенью)
+                render_id(sc, placed, "c_base_rivets", lambda o, role: None if role.startswith("rail")
+                          else [white if c == "rivets" else black for c in o["cats"]])
+            continue
         def assign_for(pick, rail_role=rail_role):
             def assign(o, role):
                 if role.startswith("rail"):
@@ -464,6 +488,10 @@ def render_masks(sc, placed):
             render_id(sc, placed, f"c_{view}_{cat}", assign_for(lambda c, cat=cat: white if c == cat else black))
         palette = {c: flat(rgb) for c, rgb in cats.items()}
         render_id(sc, placed, f"colormap_{view}", assign_for(lambda c, palette=palette: palette[c]))
+        if view == "base":  # рукава двух видов — каждый из четырёх своим цветом, прочее чёрное
+            kinds = {k: flat(rgb) for k, rgb in ARM_COLORS.items()}
+            render_id(sc, placed, "colormap_arms", lambda o, role: None if role.startswith("rail") else
+                      [kinds[o["arm_kind"]] if role == "plates" else black] * len(o.data.materials))
 
 
 def render_shadow(sc, placed):
@@ -572,7 +600,33 @@ def new_coll(sc, name):
     return c
 
 
-def main():
+def replace_cut_arms(path):
+    """Геометрия рукавов со срезом — из другого FBX той же иерархии; объекты, родители и трансформы остаются прежними."""
+    old = arm_meshes()[True]
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.fbx(filepath=path)
+    added = [o for o in bpy.data.objects if o not in before]
+    new = {}
+    for o in added:
+        p = o
+        while p and not p.name.startswith("Cloner_1"):
+            p = p.parent
+        if o.type == "MESH" and p:
+            c = sum((o.matrix_world @ Vector(v) for v in o.bound_box), Vector()) / 8
+            new[(2 if c.x > 0 else 6) if abs(c.x) > abs(c.y) else (0 if c.y > 0 else 4)] = o
+    assert set(new) == set(old), f"{path}: рукава со срезом не найдены по всем 4 сторонам ({sorted(new)})"
+    for d, name in old.items():
+        dst, src = bpy.data.objects[name], new[d]
+        me = src.data.copy()
+        me.transform(dst.matrix_world.inverted() @ src.matrix_world)
+        dst.data = me
+        print("CUT_ARM", DIR_NAMES[d], name, "<-", os.path.basename(path), src.name)
+    for o in added:
+        bpy.data.objects.remove(o)
+
+
+def setup():
+    """Сцена Clean: меши автора импортируются один раз и прячутся; свет, мир, материалы — общие для вариаций."""
     sc = bpy.data.scenes["Clean"]
     bpy.context.window.scene = sc
     for name in ("C_Tile", "C_Rails", "C_Bases"):
@@ -581,7 +635,11 @@ def main():
 
     before = set(bpy.data.objects)
     bpy.ops.import_scene.fbx(filepath=FBX)
-    imported = [o for o in bpy.data.objects if o not in before]
+    if CUT_ARMS_FBX:
+        replace_cut_arms(os.path.join(HERE, "..", CUT_ARMS_FBX))
+    for o in bpy.data.objects:
+        if o not in before:
+            o.hide_render = True
 
     colls = {r: new_coll(sc, "T_" + r) for r in ("plates", "borders", "decor", "rail_on", "rail_off")}
     blockers = bpy.data.collections.new("T_blockers")  # тени для солнц подложки — всё, кроме путей
@@ -589,37 +647,8 @@ def main():
     mat_base = final_material("final_base", live_ao=BASE_LIVE_AO or BASE_AO_DETAIL > 0)  # подложка и декор
     mat_off = off_material(mat, OFF_DARK, "final_off")
     mat_off_curve = off_material(mat, OFF_DARK_CURVE, "final_off_curve")
-    placed = {r: [] for r in colls}
-    for name, role in pieces():
-        src = bpy.data.objects[name]
-        # пути в FBX иногда приходят в своём базисе (см, Y вверх, растяжка √2): ON_* в to_claude.fbx, OFF_* в last_new.fbx от 23:37
-        cm = max(abs(c) for v in src.bound_box for c in (src.matrix_world @ Vector(v))) > 50
-        world = ON_FIX @ src.matrix_world if name.startswith(("ON_", "OFF_")) and cm else src.matrix_world
-        # трансформ запекаем в вершины: у повёрнутых дуг OFF масштаб (1, 1, 0.707), и растяжка √2 по Y
-        # даёт перекос, который матрица объекта (loc/rot/scale) не держит — дуги искажались
-        if name.startswith("ON_") and ON_LIFT:
-            world = Matrix.Translation((0, 0, ON_LIFT)) @ world
-        me = src.data.copy()
-        me.transform(world)
-        o = bpy.data.objects.new("t_" + name, me)
-        o.matrix_world = STRETCH
-        o.data.materials.clear()
-        if role != "rail_off":
-            o.data.materials.append(mat if role == "rail_on" else mat_base)
-        else:
-            curve = name[4:6] in ("NE", "NW", "SE", "SW") and name.count("_") == 2  # OFF_NE_2, не OFF_NE_EW_SE_2
-            o.data.materials.append(mat_off_curve if curve else mat_off)
-        categorize(o, name, role)
-        colls[role].objects.link(o)
-        if not role.startswith("rail"):
-            blockers.objects.link(o)
-        placed[role].append(o)
     sea = max((alpha.matrix_world @ Vector(c)).z for c in alpha.bound_box)
-    for objs in placed.values():
-        for o in objs:
-            stretch_above_sea(o, sea)
-    for o in imported:
-        bpy.data.objects.remove(o)
+    ctx = dict(sc=sc, alpha=alpha, colls=colls, blockers=blockers, mats=(mat, mat_base, mat_off, mat_off_curve), sea=sea)
 
     L = bpy.data.objects
     L["c_Sun_Border"].light_linking.receiver_collection = colls["borders"]
@@ -635,6 +664,11 @@ def main():
     # к размытому напрямую: отражения металла видят пятно — отсюда пластик
     wn = sc.world.node_tree
     wn.links.new(wn.nodes["Mix"].outputs["Result"], wn.nodes["Background"].inputs["Color"])
+    # рассеянная часть неба (размытый HDRI, не-глянцевые лучи) — множителем: в космосе ей неоткуда взяться
+    diffuse_gain = wn.nodes.new("ShaderNodeMix"); diffuse_gain.data_type = "RGBA"; diffuse_gain.blend_type = "MULTIPLY"
+    diffuse_gain.inputs["Factor"].default_value = 1.0
+    wn.links.new(wn.nodes["Environment Texture.001"].outputs["Color"], diffuse_gain.inputs["A"])
+    wn.links.new(diffuse_gain.outputs["Result"], wn.nodes["Mix"].inputs["A"])
     sharp = wn.nodes["Environment Texture"]  # Autumn Forest, резкий
     rot = wn.nodes.new("ShaderNodeMapping")
     wn.links.new(wn.nodes["Texture Coordinate"].outputs["Generated"], rot.inputs["Vector"])
@@ -660,6 +694,34 @@ def main():
     sc.collection.objects.link(fill)
     fill.light_linking.receiver_collection = colls["rail_on"]
     # акцент на рукава (бело-жёлтая база): небольшая area-лампа, светит только на рукава, с тенями от базы
+    if BASE_KEY["energy"]:
+        # ключевой свет базы как в эталоне: жёсткое солнце слева-сверху на всю базу (рукава, бортики, декор)
+        key = bpy.data.objects.new("T_Base_Key", bpy.data.lights.new("T_Base_Key", "SUN"))
+        key.data.energy, key.data.angle, key.data.color = BASE_KEY["energy"], math.radians(BASE_KEY["angle"]), BASE_KEY["color"]
+        key.location = Vector(BASE_KEY["from"]).normalized() * 20
+        key.rotation_euler = (-Vector(BASE_KEY["from"])).to_track_quat("-Z", "Y").to_euler()
+        sc.collection.objects.link(key)
+        key.light_linking.receiver_collection = blockers
+        key.light_linking.blocker_collection = blockers
+        key.data.specular_factor = BASE_KEY["spec"]
+        key.data.exposure = BASE_KEY["exposure"]  # Blender: мощность × 2^exposure
+        for name in BASE_KEY["replaces"]:
+            L[name].data.energy = 0.0
+        for i, g in enumerate(BASE_GLINTS):
+            # блики на рукавах: area-лампы только в отражения (diffuse 0). Блик на вертикальной фаске виден, когда
+            # лампа почти зеркальна камере относительно фаски — поэтому они низко, у горизонта, спереди-сбоку
+            gl = bpy.data.objects.new(f"T_Base_Glint{i}", bpy.data.lights.new(f"T_Base_Glint{i}", "AREA"))
+            gl.data.size, gl.data.energy = g["size"], g["energy"]
+            if g.get("size_y"):  # прямоугольник: size — по горизонтали (локальная X лампы лежит в горизонтали)
+                gl.data.shape, gl.data.size_y = "RECTANGLE", g["size_y"]
+            else:
+                gl.data.shape = "DISK"
+            gl.data.diffuse_factor, gl.data.specular_factor = 0.0, 1.0
+            gl.location = Vector(g["at"])
+            gl.rotation_euler = (-Vector(g["at"])).to_track_quat("-Z", "Y").to_euler()
+            sc.collection.objects.link(gl)
+            gl.light_linking.receiver_collection = colls["plates"]
+            gl.light_linking.blocker_collection = blockers
     acc = bpy.data.objects.new("T_Base_Accent", bpy.data.lights.new("T_Base_Accent", BASE_ACCENT["type"]))
     acc.data.energy, acc.data.color = BASE_ACCENT["energy"], BASE_ACCENT["color"]
     if BASE_ACCENT["type"] == "SUN":
@@ -671,6 +733,8 @@ def main():
     sc.collection.objects.link(acc)
     acc.light_linking.receiver_collection = colls["plates"]
     acc.light_linking.blocker_collection = blockers
+    if BASE_KEY["energy"] and not os.environ.get("KEEP_ACCENT"):
+        acc.data.energy = 0.0
     for name, (p_loc, p_rot, p_col) in LIGHT_POSE.items():
         L[name].location, L[name].rotation_euler = p_loc, p_rot
         if p_col:
@@ -687,14 +751,67 @@ def main():
     r.resolution_x = r.resolution_y = PX
     r.image_settings.file_format = "PNG"; r.image_settings.color_mode = "RGBA"
     alpha.is_holdout = True
+    ctx.update(sun_rails=sun_rails, rails_energy=rails_energy, rot=rot, gam=gam, wn=wn, diffuse_gain=diffuse_gain)
+    return ctx
 
+
+def place(ctx, neighbours, rails_on, rails=True):
+    """Детали вариации: копии мешей автора с запечённым трансформом, по коллекциям ролей."""
+    colls, blockers = ctx["colls"], ctx["blockers"]
+    mat, mat_base, mat_off, mat_off_curve = ctx["mats"]
+    arms = arm_meshes()
+    arm_kind = {arms[DIR_NAMES[d] in neighbours][d]: ("cut" if DIR_NAMES[d] in neighbours else "cap") for d in ARM_SUFFIX}
+    placed = {r: [] for r in colls}
+    for name, role in pieces(neighbours, rails_on, rails):
+        src = bpy.data.objects[name]
+        # пути в FBX иногда приходят в своём базисе (см, Y вверх, растяжка √2): ON_* в to_claude.fbx, OFF_* в last_new.fbx от 23:37
+        cm = max(abs(c) for v in src.bound_box for c in (src.matrix_world @ Vector(v))) > 50
+        world = ON_FIX @ src.matrix_world if name.startswith(("ON_", "OFF_")) and cm else src.matrix_world
+        # трансформ запекаем в вершины: у повёрнутых дуг OFF масштаб (1, 1, 0.707), и растяжка √2 по Y
+        # даёт перекос, который матрица объекта (loc/rot/scale) не держит — дуги искажались
+        if name.startswith("ON_") and ON_LIFT:
+            world = Matrix.Translation((0, 0, ON_LIFT)) @ world
+        me = src.data.copy()
+        me.transform(world)
+        o = bpy.data.objects.new("t_" + name, me)
+        o.matrix_world = STRETCH
+        o.data.materials.clear()
+        if role != "rail_off":
+            o.data.materials.append(mat if role == "rail_on" else mat_base)
+        else:
+            curve = name[4:6] in ("NE", "NW", "SE", "SW") and name.count("_") == 2  # OFF_NE_2, не OFF_NE_EW_SE_2
+            o.data.materials.append(mat_off_curve if curve else mat_off)
+        categorize(o, name, role)
+        if role == "plates":
+            o["arm_kind"] = arm_kind[name]
+        colls[role].objects.link(o)
+        if not role.startswith("rail"):
+            blockers.objects.link(o)
+        placed[role].append(o)
+    for objs in placed.values():
+        for o in objs:
+            stretch_above_sea(o, ctx["sea"])
+    return placed
+
+
+def remove(placed):
+    for objs in placed.values():
+        for o in objs:
+            me = o.data
+            bpy.data.objects.remove(o)
+            bpy.data.meshes.remove(me)
+
+
+def render_variant(ctx, placed, out, passes=("base", "rails_off", "rails_on"), masks=("base", "off", "on"), shadow=True):
+    global OUT
+    OUT = out
+    sc, colls, r = ctx["sc"], ctx["colls"], ctx["sc"].render
+    sun_rails, rails_energy, rot, gam, wn, diffuse_gain = (ctx[k] for k in ("sun_rails", "rails_energy", "rot", "gam", "wn", "diffuse_gain"))
     os.makedirs(OUT, exist_ok=True)
-    passes = {"base": ("plates", "borders", "decor"), "rails_off": ("rail_off",), "rails_on": ("rail_on",)}
+    show_of = {"base": ("plates", "borders", "decor"), "rails_off": ("rail_off",), "rails_on": ("rail_on",)}
     hidden = {"base": ("rail_off", "rail_on"), "rails_off": ("rail_on",), "rails_on": ("rail_off",)}
-    only = os.environ.get("PASSES")  # напр. PASSES=base — перерендерить только подложку
-    for name, show in passes.items():
-        if only and name not in only.split(","):
-            continue
+    for name in passes:
+        show = show_of[name]
         rails_pass = name != "base"
         sun_rails.light_linking.receiver_collection = colls["rail_off" if name == "rails_off" else "rail_on"]
         sun_rails.data.energy = rails_energy * (OFF_LIGHT if name == "rails_off" else 1.0)
@@ -711,6 +828,8 @@ def main():
         sc.compositing_node_group.nodes["C_AO"].inputs["Factor"].default_value = 0.85 if old else RENDER_AO
         sc.world.light_settings.distance = 1.0 if old else AO_DIST
         wn.nodes["Background"].inputs["Strength"].default_value = ON_ENV if name == "rails_on" and not old else 1.0
+        g = BASE_ENV_DIFFUSE if name == "base" else 1.0
+        diffuse_gain.inputs["B"].default_value = (g, g, g, 1)
         for role, objs in placed.items():
             # в проходах путей подложка ловит их тень и окклюзию (shadow catcher) и отдаёт в альфу
             # слоя 2: темнеет только там, где пути есть, а слой 1 остаётся общим для всех масок
@@ -723,15 +842,41 @@ def main():
         r.filepath = os.path.join(OUT, name, "tile.png")
         bpy.ops.render.render(write_still=True)
 
-    if SHADOW_PASS and (not only or "metal" in only):
-        render_masks(sc, placed)
-    if SHADOW_PASS and (not only or "shadow" in only):
+    if masks:
+        render_masks(sc, placed, masks)
+    if shadow and SHADOW_PASS:
         render_shadow(sc, placed)
 
+
+
+def main():
+    ctx = setup()
+    mode = os.environ.get("ATLAS")
+    if mode in ("base", "rails"):
+        # атлас: base — 256 вариаций подложки по соседям (бит i = DIR_NAMES[i]); rails — 64 маски путей
+        # (бит i = PATHS[i], docs/art.md) на подложке со всеми восемью соседями. Готовые ячейки пропускаются.
+        for m in range(256 if mode == "base" else 64):
+            out = os.path.join(HERE, "render", f"atlas_{mode}", f"{m:03d}")
+            if os.path.exists(os.path.join(out, "done")):
+                continue
+            if mode == "base":
+                placed = place(ctx, {DIR_NAMES[i] for i in range(8) if m >> i & 1}, set(), rails=False)
+                render_variant(ctx, placed, out, passes=("base",), masks=("base",), shadow=False)
+            else:
+                placed = place(ctx, set(DIR_NAMES), {PATHS[i] for i in range(6) if m >> i & 1})
+                render_variant(ctx, placed, out, passes=("rails_off", "rails_on"), masks=("off", "on", "base_rivets"))
+            remove(placed)
+            open(os.path.join(out, "done"), "w").close()
+            print("CELL", mode, m, flush=True)
+        return
+    only = os.environ.get("PASSES")  # напр. PASSES=base — перерендерить только подложку
+    placed = place(ctx, NEIGHBOURS, RAILS_ON)
+    passes = tuple(p for p in ("base", "rails_off", "rails_on") if not only or p in only.split(","))
+    render_variant(ctx, placed, OUT, passes, masks=("base", "off", "on") if not only or "metal" in only else (),
+                   shadow=not only or "shadow" in only)
     for objs in placed.values():
         for o in objs:
             o.hide_render = False; o.is_holdout = False; o.is_shadow_catcher = False
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, "render_tile.blend"), copy=True)
-
 
 main()

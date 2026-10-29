@@ -30,13 +30,18 @@ local GFX = "__space-cart-logistics__/graphics/"
 -- `working_visualisations` с тем же слоем lower-object.
 local RAIL_DROP_VECTOR = { 0, 1000 }
 
--- ячейка листа rail.png по маске (контракт «бит → ячейка»: 8×8, row-major)
+-- Атласы тайла (3d/tiling/compose_atlas.py, PSD автора — 3d/tiling/render/atlas_*.psd):
+-- ячейка 80 px = 1.25 тайла при scale 0.5, центр ячейки — центр сущности (якорь земли
+-- в спрайте на 2.9 px выше — по нему же стоит каретка). Раскладка row-major.
+local TILE_CELL = 80
+
+-- ячейка слоя 2 (пути) по маске (контракт «бит → ячейка»: 8×8, row-major)
 local function rail_cell(mask)
   return {
-    filename = GFX .. "rail.png",
-    width = 64, height = 64,
-    x = (mask % 8) * 64,
-    y = math.floor(mask / 8) * 64,
+    filename = GFX .. "atlas_rails_layer2.png",
+    width = TILE_CELL, height = TILE_CELL,
+    x = (mask % 8) * TILE_CELL,
+    y = math.floor(mask / 8) * TILE_CELL,
     frame_count = 1,
     scale = 0.5,
   }
@@ -140,17 +145,16 @@ end
 -- graphics_variation = (mask & 0x7F) + 1. Смена прототипа = пересоздание, но к
 -- подложке ничего не привязано (ни проводов, ни инвентаря) — это дёшево.
 -- Порядок бит (он же порядок клеток листа): 0 N, 1 NE, 2 E, 3 SE, 4 S, 5 SW, 6 W, 7 NW.
-local UNDERLAY_CELL = 128  -- клетка листа 128px, заливка 80px по центру: подложка
-                           -- шире тайла и заезжает на соседей. Масштаб 64px = 1 тайл.
+-- Слой 1 атласа (подложка): 16×16 ячеек по TILE_CELL — подложка шире тайла и заезжает на соседей.
 local underlays = {}
 for chunk = 0, 1 do
   local pictures = {}
   for i = 0, 127 do
     local mask = chunk * 128 + i
     pictures[i + 1] = {
-      filename = GFX .. "underlay.png",
-      width = UNDERLAY_CELL, height = UNDERLAY_CELL,
-      x = (mask % 16) * UNDERLAY_CELL, y = math.floor(mask / 16) * UNDERLAY_CELL,
+      filename = GFX .. "atlas_base_layer1.png",
+      width = TILE_CELL, height = TILE_CELL,
+      x = (mask % 16) * TILE_CELL, y = math.floor(mask / 16) * TILE_CELL,
       scale = 0.5,
     }
   end

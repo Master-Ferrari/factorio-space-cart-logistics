@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "sprites"))
 from compose_passes import apply_exposure, bicubic_sharper  # noqa: E402
 
-SRC = HERE / "render" / (sys.argv[1] if len(sys.argv) > 1 else "mixed")
+SRC = K = None  # задаются в build()
 SIZE = 80
 OFF_EXPOSURE = float(os.environ.get("OFF_EXPOSURE", -0.6))     # убранные пути, ступени
 RIVET_MAX_AREA = 150  # px кадра 320: пятно металла больше — не заклёпка
@@ -82,57 +82,80 @@ def split_base(base):
     return [("1 подложка целиком", base, True)] + split(base, order, "1z прочее", [t for t, _ in BASE_LAYERS] + ["1z прочее"])
 
 
-base = load("base")
-K = base.width // 320  # пиксельные параметры заданы для кадра 320 (×4); в ×8 они вдвое больше
-rivets = rivet_mask() if has("c_base_rivets") else None
-if rivets is not None and RIVET_EXPOSURE:
-    base = Image.composite(apply_exposure(base, RIVET_EXPOSURE, 0.0, 1.0), base, rivets.filter(ImageFilter.GaussianBlur(0.7 * K)))
-off = apply_exposure(load("rails_off"), OFF_EXPOSURE, 0.0, 1.0)
-on = apply_exposure(load("rails_on"), RAILS_EXPOSURE, 0.0, 0.97)
-parts = {"1 подложка": base, "2b убранные пути": off, "2c включённые пути": on}
-rails = Image.new("RGBA", base.size, (0, 0, 0, 0))
-if (SRC / "shadow" / "tile.png").is_file():
-    # тень путей из прохода shadow: чёрная, альфа = тень, размыта растром; в слое 2 — в самом низу,
-    # под убранными и включёнными путями
-    a = load("shadow").getchannel("A").filter(ImageFilter.GaussianBlur(SHADOW_BLUR * K))
-    a = a.point(lambda v: min(255, int(v * SHADOW_OPACITY)))
-    if rivets is not None:  # заклёпки над тенью: на них тень снимаем
-        a = ImageChops.multiply(a, ImageChops.invert(rivets))
-    shadow = Image.new("RGBA", base.size, (0, 0, 0, 0)); shadow.putalpha(a)
-    rails = Image.alpha_composite(rails, shadow)
-    parts["2a тень путей"] = shadow
-rails = Image.alpha_composite(Image.alpha_composite(rails, off), on)
-layer1, layer2 = bicubic_sharper(base, SIZE), bicubic_sharper(rails, SIZE)
-layer1.save(SRC / "layer1_80.png")
-layer2.save(SRC / "layer2_80.png")
-# все слои в PSD в исходном разрешении, уже обработанные (экспозиции, размытие тени, заклёпки):
-# стопка «Обычный» сверху вниз даёт ровно наш итог до уменьшения
-from psd_write import write_psd
-psd = split_base(base) or [("1 подложка", base, True)]
-if "2a тень путей" in parts:
-    psd.append(("2a тень путей", parts["2a тень путей"], True))
-psd += split_rails(off, "off", "убранные пути", "2b")
-psd += split_rails(on, "on", "включённые пути", "2c")
-for view, title in (("base", "колормапа подложки"), ("off", "колормапа убранных путей"), ("on", "колормапа включённых путей")):
-    if has(f"colormap_{view}"):
-        psd.append((title, load(f"colormap_{view}"), False))
-write_psd(SRC / "layers.psd", psd)
-# составные части слоёв по отдельности, 80 px — для раздела «Слои» в compare.html
-(SRC / "parts").mkdir(exist_ok=True)
-for name, im in parts.items():
-    bicubic_sharper(im, SIZE).save(SRC / "parts" / f"{name}.png")
+def build(src):
+    """Проходы одной вариации -> слои. Есть подложка, пути или оба (ячейки атласов рендерятся раздельно).
+    Возвращает dict: psd — [(имя, RGBA в исходном разрешении, видим)], layer1/layer2 — 80 px (или None), parts."""
+    global SRC, K
+    SRC = Path(src)
+    first = next(n for n in ("base", "rails_on", "rails_off") if has(n))
+    K = load(first).width // 320  # пиксельные параметры заданы для кадра 320 (×4); в ×8 они вдвое больше
+    size = load(first).size
+    rivets = rivet_mask() if has("c_base_rivets") else None
+    psd, parts, layer1, layer2 = [], {}, None, None
+    if has("base"):
+        base = load("base")
+        if rivets is not None and RIVET_EXPOSURE:
+            base = Image.composite(apply_exposure(base, RIVET_EXPOSURE, 0.0, 1.0), base, rivets.filter(ImageFilter.GaussianBlur(0.7 * K)))
+        parts["1 подложка"] = base
+        layer1 = bicubic_sharper(base, SIZE)
+        psd += split_base(base) or [("1 подложка", base, True)]
+    if has("rails_on"):
+        off = apply_exposure(load("rails_off"), OFF_EXPOSURE, 0.0, 1.0)
+        on = apply_exposure(load("rails_on"), RAILS_EXPOSURE, 0.0, 0.97)
+        parts["2b убранные пути"], parts["2c включённые пути"] = off, on
+        rails = Image.new("RGBA", size, (0, 0, 0, 0))
+        if has("shadow"):
+            # тень путей из прохода shadow: чёрная, альфа = тень, размыта растром; в слое 2 — в самом низу,
+            # под убранными и включёнными путями
+            a = load("shadow").getchannel("A").filter(ImageFilter.GaussianBlur(SHADOW_BLUR * K))
+            a = a.point(lambda v: min(255, int(v * SHADOW_OPACITY)))
+            if rivets is not None:  # заклёпки над тенью: на них тень снимаем
+                a = ImageChops.multiply(a, ImageChops.invert(rivets))
+            shadow = Image.new("RGBA", size, (0, 0, 0, 0)); shadow.putalpha(a)
+            rails = Image.alpha_composite(rails, shadow)
+            parts["2a тень путей"] = shadow
+            psd.append(("2a тень путей", shadow, True))
+        rails = Image.alpha_composite(Image.alpha_composite(rails, off), on)
+        layer2 = bicubic_sharper(rails, SIZE)
+        psd += split_rails(off, "off", "убранные пути", "2b")
+        psd += split_rails(on, "on", "включённые пути", "2c")
+    for view, title in (("base", "колормапа подложки"), ("arms", "колормапа рукавов: завиток / обрез"),
+                        ("off", "колормапа убранных путей"), ("on", "колормапа включённых путей")):
+        if has(f"colormap_{view}"):
+            psd.append((title, load(f"colormap_{view}"), False))
+    return {"psd": psd, "layer1": layer1, "layer2": layer2, "parts": parts}
 
-# превью: 320 до даунскейла | слои 80 и их сумма, увеличенные ×4 без сглаживания
-full = Image.alpha_composite(base, rails)
-game = Image.alpha_composite(layer1, layer2)
-bg = (30, 30, 30, 255)
-sheet = Image.new("RGBA", (320 * 4 + 30, 320), bg)
-for i, im in enumerate((full, layer1, layer2, game)):
-    im = im if im.size[0] == 320 else im.resize((320, 320), Image.Resampling.NEAREST)
-    sheet.paste(Image.alpha_composite(Image.new("RGBA", (320, 320), bg), im), (i * 330, 0))
-sheet.save(SRC / "preview.png")
-if len(sys.argv) > 2:
-    (HERE / "render" / "versions").mkdir(exist_ok=True)
-    label = sys.argv[2].replace(":", " —").replace("/", "-")  # двоеточие в имени файла Windows понимает как поток NTFS
-    game.save(HERE / "render" / "versions" / f"{SRC.name} {label}.png")
-print("ok", SRC)
+
+def main():
+    """Одна вариация: два игровых слоя 80 px, PSD в исходном разрешении, части для compare.html, превью."""
+    from psd_write import write_psd
+    r = build(HERE / "render" / (sys.argv[1] if len(sys.argv) > 1 else "mixed"))
+    layer1, layer2 = r["layer1"], r["layer2"]
+    layer1.save(SRC / "layer1_80.png")
+    layer2.save(SRC / "layer2_80.png")
+    # стопка «Обычный» сверху вниз даёт ровно наш итог до уменьшения
+    write_psd(SRC / "layers.psd", r["psd"])
+    (SRC / "parts").mkdir(exist_ok=True)
+    for name, im in r["parts"].items():
+        bicubic_sharper(im, SIZE).save(SRC / "parts" / f"{name}.png")
+    # превью: 320 до даунскейла | слои 80 и их сумма, увеличенные ×4 без сглаживания
+    full = r["parts"]["1 подложка"]
+    for k in ("2a тень путей", "2b убранные пути", "2c включённые пути"):
+        if k in r["parts"]:
+            full = Image.alpha_composite(full, r["parts"][k])
+    game = Image.alpha_composite(layer1, layer2)
+    bg = (30, 30, 30, 255)
+    sheet = Image.new("RGBA", (320 * 4 + 30, 320), bg)
+    for i, im in enumerate((full, layer1, layer2, game)):
+        im = im if im.size[0] == 320 else im.resize((320, 320), Image.Resampling.NEAREST)
+        sheet.paste(Image.alpha_composite(Image.new("RGBA", (320, 320), bg), im), (i * 330, 0))
+    sheet.save(SRC / "preview.png")
+    if len(sys.argv) > 2:
+        (HERE / "render" / "versions").mkdir(exist_ok=True)
+        label = sys.argv[2].replace(":", " —").replace("/", "-")  # двоеточие в имени файла Windows понимает как поток NTFS
+        game.save(HERE / "render" / "versions" / f"{SRC.name} {label}.png")
+    print("ok", SRC)
+
+
+if __name__ == "__main__":
+    main()
