@@ -1,0 +1,28 @@
+{
+  "cells": 256,
+  "cell_size": 128,
+  "atlas_size": [
+    2048,
+    2048
+  ],
+  "scale": 0.5,
+  "world_tile_pixels": 64,
+  "psd_layers": 8,
+  "visible_category_layers": 7,
+  "hidden_reference_layer": true,
+  "category_pixels": {
+    "Рукава": 562272,
+    "Бортики": 128256,
+    "Заклёпки": 44928,
+    "Медь": 69632,
+    "Кольца": 72960,
+    "Поршни": 145152,
+    "Ямы и механизмы": 382912
+  },
+  "approved_probe_pixel_identical": true,
+  "psd_merged_pixel_identical": true,
+  "sha256": {
+    "atlas_base_layer1.png": "e1ff12daa660cf5d81ca56ee140bb744ba6dc09a3a724a02e1e2978e96638a0f",
+    "atlas_base.psd": "e2376c529a46dfc5361370db5cde64c705dbcdb3868b7f49be50931dc9902029"
+  }
+}

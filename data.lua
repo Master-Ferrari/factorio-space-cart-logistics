@@ -31,9 +31,10 @@ local GFX = "__space-cart-logistics__/graphics/"
 local RAIL_DROP_VECTOR = { 0, 1000 }
 
 -- Атласы тайла (3d/tiling/compose_atlas.py, PSD автора — 3d/tiling/render/atlas_*.psd):
--- ячейка 80 px = 1.25 тайла при scale 0.5, центр ячейки — центр сущности (якорь земли
+-- пути: 80 px = 1.25 тайла; подложка: 128 px = 2 тайла, scale 0.5. Центры совпадают (якорь земли
 -- в спрайте на 2.9 px выше — по нему же стоит каретка). Раскладка row-major.
 local TILE_CELL = 80
+local BASE_TILE_CELL = 128 -- adaptive underlay: 2 tiles of coverage; same pixel scale
 
 -- ячейка слоя 2 (пути) по маске (контракт «бит → ячейка»: 8×8, row-major)
 local function rail_cell(mask)
@@ -145,7 +146,7 @@ end
 -- graphics_variation = (mask & 0x7F) + 1. Смена прототипа = пересоздание, но к
 -- подложке ничего не привязано (ни проводов, ни инвентаря) — это дёшево.
 -- Порядок бит (он же порядок клеток листа): 0 N, 1 NE, 2 E, 3 SE, 4 S, 5 SW, 6 W, 7 NW.
--- Слой 1 атласа (подложка): 16×16 ячеек по TILE_CELL — подложка шире тайла и заезжает на соседей.
+-- Слой 1 атласа (подложка): 16×16 ячеек по BASE_TILE_CELL — подложка шире тайла и заезжает на соседей.
 local underlays = {}
 for chunk = 0, 1 do
   local pictures = {}
@@ -153,8 +154,8 @@ for chunk = 0, 1 do
     local mask = chunk * 128 + i
     pictures[i + 1] = {
       filename = GFX .. "atlas_base_layer1.png",
-      width = TILE_CELL, height = TILE_CELL,
-      x = (mask % 16) * TILE_CELL, y = math.floor(mask / 16) * TILE_CELL,
+      width = BASE_TILE_CELL, height = BASE_TILE_CELL,
+      x = (mask % 16) * BASE_TILE_CELL, y = math.floor(mask / 16) * BASE_TILE_CELL,
       scale = 0.5,
     }
   end

@@ -22,6 +22,11 @@ RIVET_EXPOSURE = float(os.environ.get("RIVET_EXPOSURE", 0.7))  # заклёпк�
 SHADOW_BLUR = float(os.environ.get("SHADOW_BLUR", 10))         # размытие тени путей, px из 320
 SHADOW_OPACITY = float(os.environ.get("SHADOW_OPACITY", 1.2))  # сила тени путей
 RAILS_EXPOSURE = float(os.environ.get("RAILS_EXPOSURE", 0.15))  # ступени (в compose_passes.py — 0.86)
+# Рукава со срезом из scaling2.fbx вылезают за тайл (на 0.4 BU длиннее прежних, а нужно было на ~0.17).
+# Режем их по краю тайла, кадр 320: x 32..288 — оси ±128 px (64 из 80); по y край виден выше и ниже
+# из-за высоты рукава (z·0.707), поэтому — прежние концы рукавов (24, 304) с той же добавкой 7 px, что по x.
+# None — не резать (CLIP_CUT_ARMS=0).
+CUT_ARMS_BOX = (32, 17, 288, 311) if os.environ.get("CLIP_CUT_ARMS", "1") == "1" else None  # x0, y0, x1, y1
 
 
 def load(name):
@@ -35,6 +40,23 @@ def has(name):
 def rivet_mask():
     """Заклёпки — отдельные куски меша декора (render_tile.py: categorize), маска c_base_rivets."""
     return load("c_base_rivets").convert("L").filter(ImageFilter.GaussianBlur(0.4 * K))
+
+
+def clip_cut_arms(img):
+    """Срезает с подложки рукава со срезом (голубые в colormap_arms) за CUT_ARMS_BOX. Прочее за краем
+    (механизмы, бортики, медь) не трогаем: в колормапе оно чёрное."""
+    if not CUT_ARMS_BOX or not has("colormap_arms"):
+        return img
+    cm = np.asarray(load("colormap_arms").convert("RGB"), dtype=np.int16)
+    arm = (cm[..., 2] > cm[..., 0] + 5) & (cm.sum(2) > 30)
+    # полупрозрачная кромка рукава в колормапе уже чёрная — её берём по соседству с рукавом
+    near = np.asarray(Image.fromarray(arm.astype(np.uint8) * 255).filter(ImageFilter.MaxFilter(2 * K + 1))) > 0
+    a = np.asarray(img).copy()
+    outside = np.ones(arm.shape, bool)
+    x0, y0, x1, y1 = (v * K for v in CUT_ARMS_BOX)
+    outside[y0:y1, x0:x1] = False
+    a[outside & (arm | (near & (a[..., 3] < 250))), 3] = 0
+    return Image.fromarray(a, "RGBA")
 
 
 def f(im):
@@ -93,7 +115,7 @@ def build(src):
     rivets = rivet_mask() if has("c_base_rivets") else None
     psd, parts, layer1, layer2 = [], {}, None, None
     if has("base"):
-        base = load("base")
+        base = clip_cut_arms(load("base"))
         if rivets is not None and RIVET_EXPOSURE:
             base = Image.composite(apply_exposure(base, RIVET_EXPOSURE, 0.0, 1.0), base, rivets.filter(ImageFilter.GaussianBlur(0.7 * K)))
         parts["1 подложка"] = base

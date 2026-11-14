@@ -1,15 +1,17 @@
-"""Ячейки render_tile.py (ATLAS=base / ATLAS=rails) -> атласы 80 px на ячейку: PNG игрового слоя и PSD,
+"""Подложка из adaptive_alpha_probe_v9, рельсы из render_tile.py -> атласы: подложка 128 px, рельсы 80 px на ячейку: PNG игрового слоя и PSD,
 где каждый слой — целый атлас своей категории (подложка целиком, рукава, ... / тень, убранные, включённые ...).
 
   python 3d/tiling/compose_atlas.py base    -> render/atlas_base.psd, graphics/atlas_base_layer1.png   (2^8 ячеек, 16×16)
   python 3d/tiling/compose_atlas.py rails   -> render/atlas_rails.psd, graphics/atlas_rails_layer2.png (2^6 ячеек, 8×8)
+
+Подложка: probe_adaptive_alpha.py -> render_export_category_ids.py -> compose_atlas.py base.
 
 graphics/ — лист, который берёт игра (data.lua). Внимание: прогон перезаписывает и PSD, и игровой PNG.
 
 Ячейка = маска: подложка — бит i = сосед DIR_NAMES[i] (N, NE, E, SE, S, SW, W, NW), пути — бит i = путь
 (N–S, E–W, N–E, N–W, S–E, S–W, docs/art.md). Раскладка row-major: col = маска % cols, row = маска // cols.
 """
-import sys
+import sys, shutil
 from pathlib import Path
 from PIL import Image
 
@@ -29,6 +31,14 @@ def shrink(title, im):
 
 
 def main():
+    if KIND == "base":
+        from export_adaptive_atlas import main as export_base
+        staging = HERE / "render" / "atlas_base_v9_export"
+        export_base(["--project", str(HERE.parent.parent), "--out", str(staging)])
+        shutil.copy2(staging / "atlas_base_layer1.png", GRAPHICS / "atlas_base_layer1.png")
+        shutil.copy2(staging / "atlas_base.psd", HERE / "render" / "atlas_base.psd")
+        print("ok", HERE / "render" / "atlas_base.psd", (2048, 2048), "8 слоёв")
+        return
     rows = COUNT // COLS
     canvases, order, visible = {}, [], {}
     game = Image.new("RGBA", (COLS * CELL, rows * CELL), (0, 0, 0, 0))

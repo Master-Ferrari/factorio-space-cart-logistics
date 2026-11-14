@@ -810,7 +810,11 @@ def render_variant(ctx, placed, out, passes=("base", "rails_off", "rails_on"), m
     os.makedirs(OUT, exist_ok=True)
     show_of = {"base": ("plates", "borders", "decor"), "rails_off": ("rail_off",), "rails_on": ("rail_on",)}
     hidden = {"base": ("rail_off", "rail_on"), "rails_off": ("rail_on",), "rails_on": ("rail_off",)}
+    alpha = ctx["alpha"]
+    keep_alpha_hidden = alpha.hide_render
     for name in passes:
+        # Матт автора нужен подложке; рельсы рендерим без вырезания c_Alpha.
+        alpha.hide_render = True if name != "base" else keep_alpha_hidden
         show = show_of[name]
         rails_pass = name != "base"
         sun_rails.light_linking.receiver_collection = colls["rail_off" if name == "rails_off" else "rail_on"]
@@ -842,10 +846,13 @@ def render_variant(ctx, placed, out, passes=("base", "rails_off", "rails_on"), m
         r.filepath = os.path.join(OUT, name, "tile.png")
         bpy.ops.render.render(write_still=True)
 
-    if masks:
-        render_masks(sc, placed, masks)
+    for mask in masks:
+        alpha.hide_render = keep_alpha_hidden if mask == "base" else True
+        render_masks(sc, placed, (mask,))
     if shadow and SHADOW_PASS:
+        alpha.hide_render = True
         render_shadow(sc, placed)
+    alpha.hide_render = keep_alpha_hidden
 
 
 
@@ -854,19 +861,20 @@ def main():
     mode = os.environ.get("ATLAS")
     if mode in ("base", "rails"):
         # атлас: base — 256 вариаций подложки по соседям (бит i = DIR_NAMES[i]); rails — 64 маски путей
-        # (бит i = PATHS[i], docs/art.md) на подложке со всеми восемью соседями. Готовые ячейки пропускаются.
+        # (бит i = PATHS[i], docs/art.md) на подложке без соседей, с закрытыми торцами рукавов. Готовые ячейки пропускаются.
         for m in range(256 if mode == "base" else 64):
             out = os.path.join(HERE, "render", f"atlas_{mode}", f"{m:03d}")
-            if os.path.exists(os.path.join(out, "done")):
+            done = "done_closed_arms_no_alpha" if mode == "rails" else "done"
+            if os.path.exists(os.path.join(out, done)):
                 continue
             if mode == "base":
                 placed = place(ctx, {DIR_NAMES[i] for i in range(8) if m >> i & 1}, set(), rails=False)
                 render_variant(ctx, placed, out, passes=("base",), masks=("base",), shadow=False)
             else:
-                placed = place(ctx, set(DIR_NAMES), {PATHS[i] for i in range(6) if m >> i & 1})
+                placed = place(ctx, set(), {PATHS[i] for i in range(6) if m >> i & 1})
                 render_variant(ctx, placed, out, passes=("rails_off", "rails_on"), masks=("off", "on", "base_rivets"))
             remove(placed)
-            open(os.path.join(out, "done"), "w").close()
+            open(os.path.join(out, done), "w").close()
             print("CELL", mode, m, flush=True)
         return
     only = os.environ.get("PASSES")  # напр. PASSES=base — перерендерить только подложку
