@@ -1,0 +1,15 @@
+{
+  "cells": 256,
+  "cell_size": 128,
+  "atlas_size": [
+    2048,
+    2048
+  ],
+  "psd_layers": 12,
+  "psd_merged_verified": true,
+  "arm_coverage_missing": [],
+  "source_non_arm_pixels_preserved": true,
+  "ground_render_variants": 16,
+  "game_atlas_replaced": false,
+  "sha256": "74df2587aeb3476934c6c7d967510f655b13ec70b4cd0a48c4f19c62da0c1651"
+}

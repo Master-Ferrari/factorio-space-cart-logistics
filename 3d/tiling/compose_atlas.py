@@ -27,7 +27,7 @@ CELL = ct.SIZE
 
 def shrink(title, im):
     # колормапы — без смешивания цветов на краях, остальное — как игровой спрайт
-    return im.resize((CELL, CELL), Image.Resampling.NEAREST) if title.startswith("колормапа") else ct.bicubic_sharper(im, CELL)
+    return im.resize((CELL, CELL), Image.Resampling.NEAREST) if title.lower().startswith(("колормапа", "colormap")) else ct.bicubic_sharper(im, CELL)
 
 
 def main():

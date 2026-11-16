@@ -1,0 +1,11 @@
+{
+  "source_layers": 68,
+  "result_layers": 70,
+  "existing_layer_records_and_pixels_byte_identical": true,
+  "merged_image_byte_identical": true,
+  "global_masks_and_additional_data_preserved": true,
+  "source": "C:\\Users\\Pecarnya-REREMASTER\\YandexDisk\\_active\\_4\\factorio-space-cart-logistics\\3d\\tiling\\final\\atlas_base_alter.psd",
+  "source_sha256": "d9ceed1c881848c9f88933e9b5a90393720453c97f17dd1fee6318da1671957c",
+  "output_sha256": "3a31e065055a0347eae8f8837f08715166f892db721c1c4ace128c93d10fb103",
+  "new_layers_hidden": true
+}

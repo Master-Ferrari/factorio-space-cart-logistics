@@ -142,9 +142,18 @@ def build(src):
         psd += split_rails(off, "off", "убранные пути", "2b")
         psd += split_rails(on, "on", "включённые пути", "2c")
     for view, title in (("base", "колормапа подложки"), ("arms", "колормапа рукавов: завиток / обрез"),
-                        ("off", "колормапа убранных путей"), ("on", "колормапа включённых путей")):
+                        ("off", "COLORMAP OFF — убранные пути, категории"), ("on", "COLORMAP ON — включённые пути, категории")):
         if has(f"colormap_{view}"):
             psd.append((title, load(f"colormap_{view}"), False))
+    if has("colormap_off") and has("colormap_on"):
+        off_map = np.asarray(load("colormap_off"))
+        state = np.zeros_like(off_map)
+        for view, color in (("off", (255, 150, 60)), ("on", (60, 210, 255))):
+            a = np.asarray(load("colormap_" + view))
+            take = (a[:, :, :3].max(2) > 16) & (a[:, :, 3] > 0)
+            state[take, :3] = color
+            state[take, 3] = 255
+        psd.append(("COLORMAP ON-OFF — голубой ON, оранжевый OFF", Image.fromarray(state), False))
     return {"psd": psd, "layer1": layer1, "layer2": layer2, "parts": parts}
 
 
